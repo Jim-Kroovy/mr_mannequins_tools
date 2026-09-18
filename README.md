@@ -4,7 +4,7 @@
 
 <h1 align="center">The Ultimate Blender Toolkit for Unreal Engine Characters</h1>
 
-<h3 align="center"><strong>Mr Mannequins Tools is a free Blender add-on built to make working with Unreal Engine's Manny and Quinn fast and painless.</strong></h3>
+<h3><strong>Mr Mannequins Tools is a free Blender add-on built to make working with Unreal Engine's Manny and Quinn fast and painless.</strong></h3>
 
 But that's not all... Mr Mannequins Tools has grown far beyond its original purpose and now includes a wide set of tools for working with characters in Blender.
 
@@ -22,7 +22,7 @@ The goal is simple: **import your assets into Blender, edit them quickly and eas
 
 ---
 
-<h3 align="center"><strong>Update 5.0</strong></h3>
+<h3><strong>Update 5.0</strong></h3>
 
 As of **Mr Mannequins Tools 5.0**, the previously separate add-ons have been merged back into one package.
 
@@ -34,7 +34,7 @@ So if you're looking for one of the old standalone add-ons and wondering where i
 
 ---
 
-<h3 align="center"><strong>Services</strong></h3>
+<h3><strong>Services</strong></h3>
 
 I’m often available for a variety of specialized freelance work!
 
@@ -49,7 +49,7 @@ If your project needs something unusual, highly technical or painfully specific,
 
 ---
 
-<h3 align="center"><strong>Support</strong></h3>
+<h3><strong>Support</strong></h3>
 
 Mr Mannequins Tools is a **free project**, so please don't expect dedicated one-to-one technical help unless you're supporting me on [**Patreon**](https://patreon.com/JimKroovy).
 
@@ -63,7 +63,7 @@ Stay up to date with what I'm creating on [**YouTube**](https://www.youtube.com/
 
 ---
 
-<h3 align="center">Licensing</h3>
+<h3>Licensing</h3>
 
 The Python source code included with Mr Mannequins Tools is distributed under the **GNU General Public License v3.0 or later**, in accordance with Blender's licensing requirements for add-ons using the Blender Python API.
 
