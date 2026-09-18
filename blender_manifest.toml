@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "mr_mannequins_tools"
+version = "5.0.0"
+name = "Mr Mannequins Tools"
+tagline = "Rigging, mesh and export tools for (almost) any armature."
+maintainer = "Jim Kroovy"
+type = "add-on"
+
+blender_version_min = "5.0.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+categories = ["Armatures"]

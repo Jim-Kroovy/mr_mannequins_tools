@@ -1,6 +1,6 @@
 <h1 align="center">Mr Mannequins Tools</h1>
 
-![Cover Image](MrMannequins_Cover.jpg)
+![Cover Image](MrMannequinsBanner.png)
 
 **Mr Mannequins Tools is a [Blender](https://www.blender.org/) add-on that exports animations and weighted meshes that are directly compatible with the third person mannequin in Unreal Engine, without re-targeting anything... As if that wasn't useful enough, it also has several mannequin themed template meshes and armatures that are ready for you to animate and block out your projects with!**
 
