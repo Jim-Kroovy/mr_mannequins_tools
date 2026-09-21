@@ -985,7 +985,7 @@ def set_bone_groups(rig, name, groups, module):
         index = rig.data.collections.find(modules.name)
         rig.data.collections.move(index, len(rig.data.collections) - 1)
 
-def add_mirrored_module(rig, rigging, name, settings):
+def add_mirrored_module(rig, primary, name, settings):
     # the mirrored copy never goes through mmt.add, so update its own list entry in place rather than duplicating it...
     index = next((i for i, m in enumerate(rig.data.mmt.rigging) if m.module == name), -1)
     if index >= 0:
@@ -993,9 +993,15 @@ def add_mirrored_module(rig, rigging, name, settings):
     else:
         item = rig.data.mmt.rigging.add()
     item.updating = True
-    item.module, item.rigging, item.is_mirrored = name, rigging, True
+    item.module, item.rigging, item.is_mirrored = name, primary.rigging, True
     set_default_settings(item.settings, get_settings_snapshot(settings))
     item.updating = False
+    # keep the pair adjacent instead of leaving a freshly added mirror stranded at the tail, left above right...
+    primary_index = next(i for i, m in enumerate(rig.data.mmt.rigging) if m.module == primary.module)
+    mirror_index = next(i for i, m in enumerate(rig.data.mmt.rigging) if m.module == name)
+    _, side = utilities.functions.get_mirrored_name(primary.module)
+    target_index = primary_index if side == 'LEFT' else primary_index + 1
+    rig.data.mmt.rigging.move(mirror_index, target_index)
 
 def set_module_moved(rig, direction):
     # bone collection order was never used for anything else, so just reorder the list directly...

@@ -29,6 +29,7 @@ def draw_cleaning_settings(layout, cleaning):
     col = layout.column()
     col.use_property_split = True
     col.use_property_decorate = False
+    col.prop(cleaning, 'leaf_bones')
     col.prop(cleaning, 'decimate')
     sub = col.column()
     sub.enabled = cleaning.decimate != 'NONE'

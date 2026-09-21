@@ -61,6 +61,13 @@ class MMT_OT_Refresh(bpy.types.Operator):
     bl_label = "Refresh Binding Constraints"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        if not utilities.functions.get_oriented_available(context):
+            cls.poll_message_set("Requires an Oriented armature")
+            return False
+        return True
+
     def execute(self, context):
         # get the oriented and original armature...
         rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
@@ -83,6 +90,13 @@ class MMT_OT_Rebuild(bpy.types.Operator):
     bl_label = "Rebuild Rigging"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        if not utilities.functions.get_oriented_available(context):
+            cls.poll_message_set("Requires an Oriented armature")
+            return False
+        return True
+
     def execute(self, context):
         rig, oriented, _ = utilities.functions.get_armature_hierarchy(context.object)
         if oriented and rig:
@@ -100,6 +114,13 @@ class MMT_OT_Copy(bpy.types.Operator):
     mode: EnumProperty(
         name="Mode", description="Whether we're copying rigging from this armature or pasting it onto this armature.",
         items=[('COPY', "Copy", ""), ('PASTE', "Paste", "")], default='COPY', options={'HIDDEN'})
+
+    @classmethod
+    def poll(cls, context):
+        if not utilities.functions.get_oriented_available(context):
+            cls.poll_message_set("Requires an Oriented armature")
+            return False
+        return True
 
     def execute(self, context):
         if self.mode == 'PASTE':
@@ -187,9 +208,8 @@ class MMT_OT_Add(bpy.types.Operator):
         obj = context.object
         if not obj or obj.mode != 'POSE':
             return False
-        _, oriented, original = utilities.functions.get_armature_hierarchy(obj)
-        oriented = oriented or original
-        if not oriented:
+        if not utilities.functions.get_oriented_available(context):
+            cls.poll_message_set("Requires an Oriented armature")
             return False
         return obj.select_get()
 
@@ -214,9 +234,10 @@ class MMT_MT_AddRigging(bpy.types.Menu):
     def poll(cls, context):
         if not context.object or context.object.mode != 'POSE':
             return False
-        _, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
-        oriented = oriented or original
-        return bool(oriented and context.object.select_get())
+        if not utilities.functions.get_oriented_available(context):
+            cls.poll_message_set("Requires an Oriented armature")
+            return False
+        return context.object.select_get()
 
     def draw(self, context):
         items = (

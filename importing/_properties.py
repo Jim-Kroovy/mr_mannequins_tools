@@ -149,6 +149,11 @@ class MMT_PG_Retargeting(bpy.types.PropertyGroup):
 
 class MMT_PG_Cleaning(bpy.types.PropertyGroup):
 
+    leaf_bones: BoolProperty(
+        name="Remove Leaf Bones", description="Remove bones that deform nothing themselves but are parented to a bone that does, catching leaf bones the FBX importers own Ignore Leaf Bones setting misses.",
+        default=True
+        )
+
     decimate: EnumProperty(
         name="Decimate Keyframes", description="Reduce each imported actions keyframes via blenders own curve-fitting decimate. This can be slow - expect several seconds per action on a dense, fully baked mocap take.",
         items=[

@@ -41,6 +41,18 @@ def get_matched_armature(armature, armatures):
     # if there is no match return nothing...
     return None
 
+def get_leaf_bones(armature, meshes):
+    # bones that actually deform something, ie. some mesh has a vertex group for them...
+    deformers = {name for mesh in meshes for name in mesh.vertex_groups.keys()}
+    leaves = []
+    for eb in armature.data.edit_bones:
+        is_childless = not eb.children
+        parent_deforms = eb.parent and eb.parent.name in deformers
+        self_deforms = eb.name in deformers
+        if is_childless and parent_deforms and not self_deforms:
+            leaves.append(eb)
+    return leaves
+
 def get_imported_assets(context, filepaths, settings):
     statics, skeletons, removals = [], {}, []
     for filepath in filepaths:
@@ -86,6 +98,7 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
         static.select_set(True)
     for skeleton, assets in skeletons.items():
         skeleton.select_set(True)
+       
         for skeletal in assets['skeletals']:
             skeletal.select_set(True)
             # ensure armature modifiers target the skeleton...
@@ -105,6 +118,12 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
             root_eb.head, root_eb.tail, root_eb.roll = head, tail, roll
             for orphan in orphans:
                 orphan.parent = root_eb
+        # if we have skeletal meshes and want to remove leaf bones...
+        if assets['skeletals'] and settings.cleaning.leaf_bones:
+            # we can more accurately remove leaf bones...
+            leaves = get_leaf_bones(skeleton, assets['skeletals'])
+            for eb in leaves:
+                skeleton.data.edit_bones.remove(eb)
         bpy.ops.object.mode_set(mode='OBJECT')
         # actions may need root motion rewritten and scaled from the object level transforms onto the root bone...
         channels = {'location', 'rotation_euler', 'rotation_quaternion', 'rotation_axis_angle', 'scale'}
@@ -138,8 +157,9 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
             rig, orient, origin = utilities.functions.get_armature_hierarchy(target)
             # if we are retargeting skeletal meshes... (and we have them)
             if settings.retargeting.meshes and assets['skeletals']:
-                # retarget the meshes with all associated actions to the target...
-                result = retargeting.functions.set_retargeted_meshes(skeleton, origin, use_actions=True)
+                # pose the fresh import into the targets own bone directions first, then bake that pose in and carry the stashed actions through it...
+                retargeting.functions.set_armature_posed(skeleton, origin)
+                result = retargeting.functions.set_retargeted_meshes(skeleton, origin)
                 # if we should create oriented armatures...
                 if settings.orientation.orient:
                     # orient them and retarget all the actions to the oriented armature... (retargeting twice seems silly but it's fast without rigging)
@@ -152,9 +172,9 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
                 finals = [(result, action) for action in retargeted if action]
             # else if we are retargeting actions and there are no skeletal meshes... (this is an animation only skeleton)
             elif settings.retargeting.actions and assets['actions'] and not assets['skeletals']:
-                # retarget onto the rig if there is one, else the plain target armature...
+                # retarget onto the armature highest in the hierarchy...
                 bpy.ops.object.mode_set(mode='OBJECT')
-                destination = rig if rig else origin
+                destination = rig if rig else orient if orient else origin
                 retargeted = []
                 for action in assets['actions']:
                     retarget = retargeting.functions.set_retargeted_action(context, action, skeleton, target, step_height=settings.retargeting.step_height)

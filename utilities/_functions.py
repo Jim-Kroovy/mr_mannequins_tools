@@ -105,8 +105,8 @@ def set_current_objects(mode, selected, active, deselect=True):
         bpy.ops.object.mode_set(mode=mode)
 
 def get_mirrored_name(name):
-    # split on seperators... (while keeping them)...
-    mirror, splits, side = "", re.split('([_ .])', name), ''
+    # split on seperators and camelCase word boundaries... (while keeping them)... so eg. "mixamorig:LeftUpLeg" isolates "Left" the same as "Left_Up_Leg" would...
+    mirror, splits, side = "", re.split('([_ .:]|(?<=[a-z])(?=[A-Z]))', name), ''
     # get dictionaries of switched side affices...
     lefts = {"L" : "R", "l" : "r", "LEFT" : "RIGHT", "Left" : "Right", "left" : "right"}
     rights = {"R" : "L", "r" : "l", "RIGHT" : "LEFT", "Right" : "Left", "right" : "left"}
@@ -304,7 +304,11 @@ def set_armature_transforms(armature, meshes, actions, location, rotation, scale
     mode, selected, active = get_current_objects(bpy.context)
     bpy.context.view_layer.objects.active = armature
     bpy.ops.object.mode_set(mode='EDIT')
+    # we need to make sure no bones are connected... (otherwise tails end up at root)
     for bone in armature.data.edit_bones:
+        bone.use_connect = False
+    for bone in armature.data.edit_bones:
+        
         # applied in the same order they compose in, scale first, then rotation, then location...
         if scale:
             bone.transform(bake_scale_matrix, scale=True, roll=False)
@@ -517,6 +521,14 @@ def get_armature_hierarchy(armature):
             original = next((child for child in oriented.children if child.get('Armature Type') == "Original"), None)
     return rig, oriented, original
 
+def get_oriented_available(context):
+    # standard poll check now that rigging/retargeting are locked to the oriented/original/rigging hierarchy - true only where get_armature_hierarchy actually finds one...
+    obj = context.object
+    if not obj or obj.type != 'ARMATURE':
+        return False
+    _, oriented, _ = get_armature_hierarchy(obj)
+    return bool(oriented)
+
 def get_stored_transform(obj):
     # grab every rotation mode along with location/scale, so whichever one is active gets restored correctly...
     return obj.location.copy(), obj.rotation_quaternion.copy(), obj.rotation_euler.copy(), obj.rotation_axis_angle[:], obj.scale.copy()
@@ -584,6 +596,9 @@ def get_copied_nla(armature):
             saved = {'name': track.name, 'mute': track.mute, 'lock': track.lock, 'solo': track.is_solo, 'strips': []}
             # then iterate through the strips...
             for strip in track.strips:
+                # a strip can legitimately have no action (eg. an orphaned reference) - skip it, nla.strips.new() cant recreate one anyway...
+                if not strip.action:
+                    continue
                 # if the action has already been appended use it's index...
                 if strip.action in indices:
                     index = indices[strip.action]
@@ -616,12 +631,9 @@ def set_copied_nla(armature, tracks, actions):
     data.action = None
     for track in list(data.nla_tracks):
         data.nla_tracks.remove(track)
-    # the first action is always the active action...
+    # the first action is always the active action... (blender assigns a sensible default slot on its own when the action has just one - explicitly reassigning it here is what was crashing blender itself on repeated retargets, so leave it alone)...
     if actions and actions[0]:
         data.action = actions[0]
-        slot = get_action_slot(data.action, armature)
-        if slot:
-            data.action_slot = slot
     # now rebuild each nla track...
     for saved in tracks:
         track = data.nla_tracks.new()
@@ -634,10 +646,6 @@ def set_copied_nla(armature, tracks, actions):
             for name, value in settings.items():
                 if name not in {'action', 'name', 'frame_start'}:
                     setattr(strip, name, value)
-            # and restore the action slot...
-            slot = get_action_slot(action, armature)
-            if slot:
-                strip.action_slot = slot
 
 def get_armature_actions(armature, method='ALL'):
     # active only wants whatever action is currently assigned, if any...

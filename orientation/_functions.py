@@ -14,28 +14,25 @@ from .. import retargeting
 
 
 def get_bone_chained(bone):
+    # a bone with nothing of its own beneath it cant be a continuation of anything - a chain by definition keeps going, so a leaf always ends one rather than being part of one, regardless of how it's angled...
+    if not bone.children:
+        return False
     # if this bone has a parent it could be part of a chain...
     if bone.parent:
-        # a symmetric pair bone (eg. the thighs) is always a branch, never a chain continuation...
-        if utilities.functions.get_primary_child(bone.parent.children) != bone:
+        # only the furthest child continues a chain - a twist bone sits closer, and a genuine branch never ties, so a tie correctly excludes every branch...
+        siblings = bone.parent.children
+        if max(siblings, key=lambda c: (c.head - bone.parent.head).length) != bone:
             return False
         # get the distance and direction from the parent to the bone...
         distance, direction = utilities.functions.get_distance_direction(bone.parent.head, bone.head)
         # if there is some distance between them...
         if distance >= 0.0001:
-            # get the bones axes...
-            bone_axes = rigging.functions.get_bone_axes(bone, ['+X', '-X', '+Y', '-Y', '+Z', '-Z'])
-            # iterate through the parents axes...
+            # check whether one of the parents axes points towards this bones head...
             parent_axes = rigging.functions.get_bone_axes(bone.parent, ['+X', '-X', '+Y', '-Y', '+Z', '-Z'])
-            for axis, vector in parent_axes.items():
-                # check if the parents axis is pointing towards the bones head... (tight threshold)...
-                parent_angle = vector.angle(direction)
-                if parent_angle <= math.radians(5):
-                    # then if the bones same axis is pointing in the same direction... (loose threshold)...
-                    child_angle = bone_axes[axis].angle(vector)
-                    if child_angle <= math.radians(45):
-                        # this is very likely a chain bone...
-                        return True
+            for vector in parent_axes.values():
+                if vector.angle(direction) <= math.radians(5):
+                    # this is very likely a chain bone...
+                    return True
     return False
 
 def set_bone_parent(armature, hierarchy, name):
@@ -117,10 +114,48 @@ def set_bone_orientation(armature, name, orient=None, hierarchy=None):
     directions = rigging.functions.get_roll_axes(hierarchy_eb, armature_eb.head, tail)
     armature_eb.roll = rigging.functions.get_shortest_roll(armature_eb, directions.values())
     # if the armature bone has a parent and is detected as part of a chain...
-    if armature_eb.parent and is_chained:
-        # it's roll should be aligned to it's parent...
-        z_axis = utilities.functions.get_closest_vector(armature_eb.parent.z_axis, axes.values())
-        armature_eb.align_roll(z_axis)
+    if armature_eb.parent and is_chained and hierarchy_eb.parent:
+        # align roll to the parent only if an axis genuinely lines up - compared against hierarchy_eb's own (never rebuilt) parent so drift can't compound down the chain...
+        z_axis = utilities.functions.get_closest_vector(hierarchy_eb.parent.z_axis, axes.values())
+        if z_axis.angle(hierarchy_eb.parent.z_axis) <= math.radians(5):
+            armature_eb.align_roll(z_axis)
+
+def get_bone_rest(armature, name):
+    # a bones own rest orientation relative to its parent, undoing the parents own armature-space rest first...
+    bone = armature.data.bones[name]
+    if bone.parent:
+        return (bone.parent.matrix_local.inverted() @ bone.matrix_local).to_quaternion()
+    return bone.matrix_local.to_quaternion()
+
+def set_bone_corrected_actions(armature, corrections):
+    # a rest orientation change invalidates any keyed rotation/translation, so re-key every frame through the same correction - same idea retargeting uses when a rest pose changes...
+    if corrections and armature.animation_data:
+        _, actions = utilities.functions.get_copied_nla(armature)
+        active = armature.animation_data.action
+        try:
+            for action in actions:
+                if action:
+                    armature.animation_data.action = action
+                    channels = retargeting.functions.get_bone_channels(action)
+                    for name, correction in corrections.items():
+                        pose_bone = armature.pose.bones.get(name)
+                        props = channels.get(name, {})
+                        if pose_bone and props:
+                            frames = sorted({kp.co.x for curves in props.values() for fc in curves.values() for kp in fc.keyframe_points})
+                            for frame in frames:
+                                basis = retargeting.functions.get_evaluated_basis(pose_bone, channels, frame)
+                                if 'rotation_quaternion' in props:
+                                    pose_bone.rotation_mode = 'QUATERNION'
+                                    pose_bone.rotation_quaternion = correction @ basis.to_quaternion()
+                                    pose_bone.keyframe_insert('rotation_quaternion', frame=frame)
+                                elif 'rotation_euler' in props:
+                                    pose_bone.rotation_euler = (correction @ basis.to_quaternion()).to_euler(pose_bone.rotation_mode)
+                                    pose_bone.keyframe_insert('rotation_euler', frame=frame)
+                                if 'location' in props:
+                                    pose_bone.location = correction @ basis.to_translation()
+                                    pose_bone.keyframe_insert('location', frame=frame)
+        finally:
+            armature.animation_data.action = active
 
 def add_oriented_bone(oriented, original, name, max_length=None):
     original_eb = original.data.edit_bones.get(name)
@@ -160,6 +195,11 @@ def set_shaped_bones(original, oriented, names, original_shape=None, oriented_sh
         pose_bone = oriented.pose.bones.get(name)
         if pose_bone:
             pose_bone.custom_shape = shape
+
+def get_oriented_label(armature):
+    # same existing-pair check mmt.oriented itself branches on, so the label always matches what clicking it will actually do...
+    _, oriented, existing = utilities.functions.get_armature_hierarchy(armature)
+    return "Update Oriented Armature" if oriented and existing else "Add Oriented Armature"
 
 def add_oriented_armature(original, max_length=None, original_shape='BALL_FULL', oriented_shape=None, use_actions=False):
     # the bone orientation math below is all in local edit-bone space, but clear the originals own object transform anyway (just in case), restoring it onto the new oriented armature once we're done...

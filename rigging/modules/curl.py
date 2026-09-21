@@ -319,7 +319,7 @@ def execute_curl_module(context, module):
             if all(validity.values()):
                 # add the mirrored rigging module, giving it its own list entry since it never goes through mmt.add...
                 mirrored_name, mirrored_added = add_curl_rigging(oriented, rig, module.mirrored)
-                _functions.add_mirrored_module(rig, module.rigging, mirrored_name, module.mirrored)
+                _functions.add_mirrored_module(rig, module, mirrored_name, module.mirrored)
                 _functions.link_mirrored_modules(rig, module, mirrored_name)
                 added.update(mirrored_added)
     return added

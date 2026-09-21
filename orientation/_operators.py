@@ -77,7 +77,7 @@ class MMT_OT_Oriented(bpy.types.Operator):
 
 def add_oriented_operator(self, context):
     self.layout.separator()
-    self.layout.operator(MMT_OT_Oriented.bl_idname, icon='GROUP_BONE')
+    self.layout.operator(MMT_OT_Oriented.bl_idname, text=functions.get_oriented_label(context.object), icon='GROUP_BONE')
 
 class MMT_OT_Orient(bpy.types.Operator):
     """Orients bone tails and rolls to align axes in the input space."""
@@ -153,6 +153,8 @@ class MMT_OT_Orient(bpy.types.Operator):
             selection = [eb.name for eb in context.selected_bones if eb.id_data == armature.data]
         else:
             selection = [pb.name for pb in context.selected_pose_bones if pb.id_data == armature]
+        # reorienting an oriented armatures own bone invalidates any of its own stashed keys for it - snapshot the old rest here so the difference can be carried through those actions once its rebuilt...
+        old_rests = {name: functions.get_bone_rest(armature, name) for name in selection} if armature.get('Armature Type') == 'Oriented' else {}
         # only the bones actually being reoriented need their mesh children unsocketed around it...
         statics = [m for m in meshes_armature.children if m.type == 'MESH' and m.parent_type == 'BONE' and m.parent_bone in selection]
 
@@ -178,6 +180,10 @@ class MMT_OT_Orient(bpy.types.Operator):
             functions.set_bone_orientation(armature, name, orient=self, hierarchy=hierarchy)
         # drop to object mode... (a safe neutral state, set_current_objects below returns us to pose/edit as needed)...
         bpy.ops.object.mode_set(mode='OBJECT')
+        # carry the rest change through this armatures own stashed actions, so they keep looking the same as before...
+        if old_rests:
+            corrections = {name: functions.get_bone_rest(armature, name).inverted() @ old_rest for name, old_rest in old_rests.items()}
+            functions.set_bone_corrected_actions(armature, corrections)
         # if this was called on an oriented or original armature...
         if oriented and original:
             # update the original armatures export child of constraints...

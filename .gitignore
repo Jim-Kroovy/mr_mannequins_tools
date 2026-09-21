@@ -1,2 +1,3 @@
 __pycache__/
-library/
+templates/library/*.blend
+templates/library/*.blend1

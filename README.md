@@ -57,9 +57,11 @@ I absolutely will help where I can, but free support has to fit around my work c
 
 To report bugs and get Blender & Unreal support please join [**Mr Mannequins Server**](https://discord.gg/wkPZJaH) on Discord.
 
-You can also get Mr Mannequins Tools on [**Superhive**](https://superhivemarket.com/products/mr-mannequins-tools) to give 10% of the proceeds to Blender.
+You can get the addon on [**Gumroad**](https://jimkroovy.gumroad.com/l/MrMannequinsTools) if you want to donate.
 
-Stay up to date with what I'm creating on [**YouTube**](https://www.youtube.com/c/JimKroovy), [**Twitter**](https://twitter.com/JimKroovy), [**Facebook**](https://www.facebook.com/JimKroovy) and [**Instagram**](https://www.instagram.com/jimkroovy).
+Or on [**Superhive**](https://superhivemarket.com/products/mr-mannequins-tools) to give 10% of the proceeds to Blender.
+
+Stay up to date with what I'm creating by following me on [**YouTube**](https://www.youtube.com/c/JimKroovy), [**X**](https://x.com/JimKroovy), [**Facebook**](https://www.facebook.com/JimKroovy) and [**Instagram**](https://www.instagram.com/jimkroovy).
 
 ---
 

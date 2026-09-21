@@ -5,7 +5,15 @@ def draw_bone_retargeting(layout, pose_bone):
     layout.prop(pose_bone.mmt, 'rotation')
     layout.prop(pose_bone.mmt, 'translation')
     layout.prop(pose_bone.mmt, 'mirror')
-    layout.operator("mmt.set_below", icon='TRIA_DOWN')
+    layout.prop(pose_bone.mmt, 'copy_children', toggle=True)
+    layout.separator()
+    row = layout.row()
+    row.label(text="Bone Mapping")
+    row.operator("mmt.add_mapping", text="", icon='ADD')
+    for index, mapping in enumerate(pose_bone.mmt.mapping):
+        row = layout.row(align=True)
+        row.prop(mapping, 'name', text="")
+        row.operator("mmt.remove_mapping", text="", icon='X').index = index
 
 class MMT_PT_RetargetingItem(bpy.types.Panel):
     bl_idname = "MMT_PT_RetargetingItem"
