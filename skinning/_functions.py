@@ -341,3 +341,70 @@ def set_weight_cylindrical(meshes, shape='SPHERE', mode='REPLACE', offset=(0.0, 
         prefs.debug_skip[0] = True
         if _debug.debug_shape_cleanup not in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.append(_debug.debug_shape_cleanup)
+
+def get_paint_swaps():
+    return [obj for obj in bpy.data.objects if obj.get('Weight Paint Swap')]
+
+# guards update_paint_mode against reacting to mode changes we trigger ourselves...
+weight_paint_busy = False
+
+def set_paint_entered(context):
+    # swap every weighted meshes armature modifier from original onto whichever rigging/oriented armature the user had selected alongside it, flagged on the object itself (not addon prefs) so it cant leak between files - blender only pairs an armature into pose mode based on the modifier it sees at entry, so bounce out and back in (guarded) to make it re-evaluate against the new one...
+    global weight_paint_busy
+    mesh = context.object
+    picked = next((o for o in context.selected_objects if o.type == 'ARMATURE' and o != mesh), None)
+    if not picked:
+        return
+    _, _, original = utilities.functions.get_armature_hierarchy(picked)
+    if not original or picked == original:
+        return
+    weighted, _ = utilities.functions.get_armature_meshes(original, bpy.context.scene.objects)
+    swapped = []
+    for obj in weighted:
+        for mod in obj.modifiers:
+            if mod.type == 'ARMATURE' and mod.object == original:
+                mod.object = picked
+                swapped.append(obj)
+    if not swapped:
+        return
+    weight_paint_busy = True
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+    weight_paint_busy = False
+    for obj in swapped:
+        obj['Weight Paint Swap'] = True
+
+def set_paint_left():
+    # return every swapped meshes armature modifier back onto its own original armature - no bounce needed, blenders pose-mode pairing only matters when entering weight paint, not leaving it...
+    global weight_paint_busy
+    weight_paint_busy = True
+    for obj in get_paint_swaps():
+        for mod in obj.modifiers:
+            if mod.type == 'ARMATURE' and mod.object and mod.object.type == 'ARMATURE':
+                _, _, original = utilities.functions.get_armature_hierarchy(mod.object)
+                if original:
+                    mod.object = original
+        del obj['Weight Paint Swap']
+    weight_paint_busy = False
+
+def update_paint_mode():
+    # msgbus callback for (Object, "mode") - works out from current context whether a mesh just entered or left weight paint mode and swaps/restores its armature modifiers accordingly...
+    if weight_paint_busy:
+        return
+    context = bpy.context
+    if context.object and context.object.type == 'MESH' and context.object.mode == 'WEIGHT_PAINT':
+        if not get_paint_swaps():
+            set_paint_entered(context)
+    elif get_paint_swaps():
+        set_paint_left()
+
+weight_paint_owner = object()
+
+def set_paint_subscribed():
+    # (re)subscribe to object mode changes - msgbus subscriptions dont survive a file load, so this also runs from a load_post handler, not just register()...
+    bpy.msgbus.clear_by_owner(weight_paint_owner)
+    bpy.msgbus.subscribe_rna(key=(bpy.types.Object, "mode"), owner=weight_paint_owner, args=(), notify=update_paint_mode)
+
+@bpy.app.handlers.persistent
+def set_paint_loaded(dummy):
+    set_paint_subscribed()

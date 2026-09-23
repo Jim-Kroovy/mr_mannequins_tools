@@ -18,11 +18,10 @@ def register():
     register_class(interface.MMT_PT_RetargetingItem)
     register_class(interface.MMT_PT_RetargetingBone)
     # set the retarget pose, apply it (meshes/rest/actions), or retarget actions from another armature - all in Pose Mode's Apply menu... (set/apply share one operator so apply can reuse sets last target)...
-    register_class(operators.MMT_OT_RetargetPose)
-    bpy.types.VIEW3D_MT_pose_apply.append(operators.add_retarget_pose_operator)
-    bpy.types.VIEW3D_MT_pose_apply.append(operators.add_armature_operator)
-    register_class(operators.MMT_OT_Retarget)
-    bpy.types.VIEW3D_MT_pose_apply.append(operators.add_actions_operator)
+    register_class(operators.MMT_OT_Pose)
+    bpy.types.VIEW3D_MT_pose_apply.append(operators.add_pose_operator)
+    register_class(operators.MMT_OT_Actions)
+    bpy.types.VIEW3D_MT_pose_apply.append(operators.add_action_operator)
     # keyframe cleaning...
     register_class(operators.MMT_OT_FCurve)
     bpy.types.DOPESHEET_MT_key.append(operators.add_fcurve_operator)
@@ -32,11 +31,10 @@ def unregister():
     bpy.types.DOPESHEET_MT_key.remove(operators.add_fcurve_operator)
     unregister_class(operators.MMT_OT_FCurve)
     # remove retarget pose/apply/action operators...
-    bpy.types.VIEW3D_MT_pose_apply.remove(operators.add_actions_operator)
-    unregister_class(operators.MMT_OT_Retarget)
-    bpy.types.VIEW3D_MT_pose_apply.remove(operators.add_armature_operator)
-    bpy.types.VIEW3D_MT_pose_apply.remove(operators.add_retarget_pose_operator)
-    unregister_class(operators.MMT_OT_RetargetPose)
+    bpy.types.VIEW3D_MT_pose_apply.remove(operators.add_action_operator)
+    unregister_class(operators.MMT_OT_Actions)
+    bpy.types.VIEW3D_MT_pose_apply.remove(operators.add_pose_operator)
+    unregister_class(operators.MMT_OT_Pose)
     # per bone translation retargeting mode...
     unregister_class(interface.MMT_PT_RetargetingBone)
     unregister_class(interface.MMT_PT_RetargetingItem)

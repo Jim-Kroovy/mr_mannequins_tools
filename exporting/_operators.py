@@ -14,7 +14,7 @@ from . import _properties as properties
 class MMT_OT_Export(bpy.types.Operator, ExportHelper):
     """Exports armatures and meshes as compatible FBX files."""
     bl_idname = "mmt.export"
-    bl_label = "Compatible FBX"
+    bl_label = "Mr Mannequins FBX"
     bl_options = {'REGISTER', 'UNDO'}
 
     filename_ext = ".fbx"

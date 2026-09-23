@@ -1147,9 +1147,11 @@ def remove_empty_armature(oriented, rig):
     bpy.ops.object.mode_set(mode='POSE')
 
 def add_rigging_armature(oriented):
-    # add one armature that will serve as the new animation driver...
-    data = bpy.data.armatures.new(oriented.name + "_Rigging")
-    rig = bpy.data.objects.new(oriented.name + "_Rigging", data)
+    # add one armature that will serve as the new animation driver - named off the original, not oriented, so it doesn't stack both tier suffixes onto one name...
+    _, _, original = utilities.functions.get_armature_hierarchy(oriented)
+    base_name = original.name[:-len("_Original")] if original and original.name.endswith("_Original") else oriented.name
+    data = bpy.data.armatures.new(base_name + "_Rigging")
+    rig = bpy.data.objects.new(base_name + "_Rigging", data)
     collections = [coll for coll in oriented.users_collection]
     for collection in collections:
         collection.objects.link(rig)

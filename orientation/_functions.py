@@ -127,7 +127,7 @@ def get_bone_rest(armature, name):
         return (bone.parent.matrix_local.inverted() @ bone.matrix_local).to_quaternion()
     return bone.matrix_local.to_quaternion()
 
-def set_bone_corrected_actions(armature, corrections):
+def set_corrected_actions(armature, corrections):
     # a rest orientation change invalidates any keyed rotation/translation, so re-key every frame through the same correction - same idea retargeting uses when a rest pose changes...
     if corrections and armature.animation_data:
         _, actions = utilities.functions.get_copied_nla(armature)

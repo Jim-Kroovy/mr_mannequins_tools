@@ -170,7 +170,7 @@ class MMT_PG_Cleaning(bpy.types.PropertyGroup):
 
     spacing: IntProperty(
         name="Key Thinning", description="Minimum space keys can have when thinning. (0 to disable).",
-        default=4, min=0
+        default=0, min=0
         )
 
 class MMT_PG_Import(bpy.types.PropertyGroup):

@@ -15,7 +15,7 @@ from . import _properties as properties
 class MMT_OT_Import(bpy.types.Operator, ImportHelper):
     """Imports compatible FBX files."""
     bl_idname = "mmt.import"
-    bl_label = "Compatible FBX"
+    bl_label = "Mr Mannequins FBX"
     bl_options = {'REGISTER', 'UNDO'}
 
     filename_ext = ".fbx"
@@ -50,16 +50,18 @@ class MMT_OT_Import(bpy.types.Operator, ImportHelper):
         filepaths = [os.path.join(self.directory, f.name) for f in self.files] if self.files else [self.filepath]
         # only the mode needs restoring - the imported statics/skeletons are meant to end up selected/active, same as any other importer...
         mode, selected, active = utilities.functions.get_current_objects(context)
+        # target is a dynamic enum rebuilt from bpy.data.objects, so it has to resolve here, before importing adds a new armature of its own - reading it any later re-runs the same callback against a list that new armature just joined, silently landing on whatever sorts into its old index instead...
+        target = bpy.data.objects.get(self.settings.retargeting.target)
         try:
             statics, skeletons, removals = functions.get_imported_assets(context, filepaths, self.settings)
-            functions.set_imported_assets(context, self.settings, statics, skeletons, removals)
+            functions.set_imported_assets(context, self.settings, statics, skeletons, removals, target)
         except RuntimeError as error:
             self.report({'ERROR'}, str(error))
             utilities.functions.set_current_objects(mode, selected, active)
             return {'CANCELLED'}
-        # pose mode only applies back if an armature actually ended up active (eg. a statics-only import wouldn't have one)...
+        # mode_set always needs an active object regardless of target mode, and pose mode specifically only applies back if an armature actually ended up active (eg. a statics-only import wouldn't have one)...
         current = context.view_layer.objects.active
-        if mode != 'POSE' or (current and current.type == 'ARMATURE'):
+        if current and (mode != 'POSE' or current.type == 'ARMATURE'):
             bpy.ops.object.mode_set(mode=mode)
         return {'FINISHED'}
 

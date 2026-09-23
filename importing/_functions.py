@@ -6,6 +6,18 @@ from .. import retargeting
 from .. import orientation
 from .. import templates
 
+def get_root_offset(armature):
+    # an animation-only exports root can sit at a different height than a skinned exports (idle frame vs t-pose) without the skeleton actually being different, so rest poses get compared relative to this instead of in raw armature space...
+    root = next((b for b in armature.data.bones if not b.parent), None)
+    return root.matrix_local.translation if root else None
+
+def get_bone_matched(a, offset_a, b, offset_b):
+    # root-relative comparison still carries some FBX export quantization noise (observed up to ~0.002 on deep finger chains), so this needs a looser tolerance than the default...
+    a, b = a.copy(), b.copy()
+    a.translation -= offset_a
+    b.translation -= offset_b
+    return utilities.functions.get_matrix_matched(a, b, tolerance=0.005)
+
 def import_file_fbx(filepath, filmbox):
     # call the FBX importer with fixed and variable settings...
     bpy.ops.import_scene.fbx(
@@ -34,10 +46,12 @@ def get_matched_armature(armature, armatures):
             # and if the hierarchy is the same...
             bones = existing.data.bones
             if all((b.parent.name if b.parent else None) == (bones[b.name].parent.name if bones[b.name].parent else None) for b in armature.data.bones):
-                # aaaand if the rest poses are the same...
-                if all(utilities.functions.get_matrix_matched(armature.data.bones[n].matrix_local, bones[n].matrix_local) for n in names):
-                    # we return the matched armature...
-                    return existing
+                # aaaand if the rest poses are the same, relative to each armatures own root...
+                offset, existing_offset = get_root_offset(armature), get_root_offset(existing)
+                if offset is not None and existing_offset is not None:
+                    if all(get_bone_matched(armature.data.bones[n].matrix_local, offset, bones[n].matrix_local, existing_offset) for n in names):
+                        # we return the matched armature...
+                        return existing
     # if there is no match return nothing...
     return None
 
@@ -90,7 +104,7 @@ def get_imported_assets(context, filepaths, settings):
                 armature.data.name = filename + "_Skeleton"
     return statics, skeletons, removals
 
-def set_imported_assets(context, settings, statics, skeletons, removals, debug=False):
+def set_imported_assets(context, settings, statics, skeletons, removals, target, debug=False):
     scaling = bpy.context.scene.unit_settings.scale_length / 0.01
     # we need to select everything we imported...
     bpy.ops.object.select_all(action='DESELECT')
@@ -142,7 +156,6 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
                 retargeting.functions.set_cleaned_action(context, skeleton, action, decimate, settings.cleaning.margin, settings.cleaning.spacing)
     # clear all transforms and parenting...
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-    target = bpy.data.objects.get(settings.retargeting.target)
     # we need to apply transforms to everything...
     for skeleton, assets in skeletons.items():
         utilities.functions.set_armature_transforms(skeleton, assets['skeletals'], assets['actions'], True, True, True)
@@ -187,6 +200,9 @@ def set_imported_assets(context, settings, statics, skeletons, removals, debug=F
                 # unlike the meshes branch above, skeleton here was only ever a source to read the action off of, so it needs the same removals cleanup instead of being left behind in the scene...
                 removals.append(skeleton)
                 finals = [(destination, action) for action in retargeted]
+                # make the last retargeted action the active one on the destination, leaving the slot to blender...
+                if retargeted:
+                    destination.animation_data.action = retargeted[-1]
         # and if we are decimating (with thinning bundled alongside it) after retargeting, do it last, on wherever the actions actually ended up...
         if settings.cleaning.decimate == 'POST':
             for armature, action in finals:
