@@ -6,7 +6,7 @@ from bpy.props import (EnumProperty, BoolProperty)
 from .. import utilities
 from . import _functions as functions
 
-class MMT_OT_Shapes(bpy.types.Operator):
+class MMT_OT_RiggingShapes(bpy.types.Operator):
     """Saves/loads a custom shapes (saving is stored from mesh evaluations and only supports sharp edges)."""
     bl_idname = "mmt.shapes"
     bl_label = "Custom Shapes"
@@ -33,11 +33,13 @@ class MMT_OT_Shapes(bpy.types.Operator):
             row.prop(self, 'shape')
 
     def execute(self, context):
+        # save every selected mesh as a custom shape...
         if self.mode == 'SAVE':
             selected = context.selected_objects
             shapes = [m for m in selected if m.type == 'MESH']
             functions.save_custom_shapes(shapes)
         elif self.mode == 'LOAD' and self.shape != 'NONE':
+            # load the shape into whatever collections the object is in...
             shape = utilities.functions.get_shape_mesh(self.shape)
             if context.object:
                 collections = [coll for coll in context.object.users_collection]
@@ -50,12 +52,12 @@ class MMT_OT_Shapes(bpy.types.Operator):
         return {'FINISHED'}
 
 def add_shape_operator(self, context):
-    op = self.layout.operator(MMT_OT_Shapes.bl_idname, text="Save Custom Shape", icon='EXPORT')
+    op = self.layout.operator(MMT_OT_RiggingShapes.bl_idname, text="Save Custom Shape", icon='EXPORT')
     op.mode = 'SAVE'
-    op = self.layout.operator(MMT_OT_Shapes.bl_idname, text="Load Custom Shape", icon='IMPORT')
+    op = self.layout.operator(MMT_OT_RiggingShapes.bl_idname, text="Load Custom Shape", icon='IMPORT')
     op.mode = 'LOAD'
 
-class MMT_OT_Refresh(bpy.types.Operator):
+class MMT_OT_RiggingRefresh(bpy.types.Operator):
     """Refreshes child of constraints on oriented and original armatures."""
     bl_idname = "mmt.refresh"
     bl_label = "Refresh Binding Constraints"
@@ -82,9 +84,9 @@ class MMT_OT_Refresh(bpy.types.Operator):
         return {'FINISHED'}
     
 def add_refresh_operator(self, context):
-    op = self.layout.operator(MMT_OT_Refresh.bl_idname, icon='FILE_REFRESH')
+    op = self.layout.operator(MMT_OT_RiggingRefresh.bl_idname, icon='FILE_REFRESH')
 
-class MMT_OT_Rebuild(bpy.types.Operator):
+class MMT_OT_RiggingRebuild(bpy.types.Operator):
     """Rebuilds all rigging modules from their current settings."""
     bl_idname = "mmt.rebuild"
     bl_label = "Rebuild Rigging"
@@ -92,6 +94,10 @@ class MMT_OT_Rebuild(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        obj = context.object
+        if not obj or obj.mode == 'EDIT':
+            cls.poll_message_set("Requires Object or Pose mode")
+            return False
         if not utilities.functions.get_oriented_available(context):
             cls.poll_message_set("Requires an Oriented armature")
             return False
@@ -105,7 +111,7 @@ class MMT_OT_Rebuild(bpy.types.Operator):
 
 
 
-class MMT_OT_Copy(bpy.types.Operator):
+class MMT_OT_RiggingCopy(bpy.types.Operator):
     """Copies/pastes every rigging module's type and settings via the addon preferences, so they can be rebuilt onto another armature."""
     bl_idname = "mmt.copy"
     bl_label = "Copy Rigging"
@@ -117,6 +123,10 @@ class MMT_OT_Copy(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        obj = context.object
+        if not obj or obj.mode == 'EDIT':
+            cls.poll_message_set("Requires Object or Pose mode")
+            return False
         if not utilities.functions.get_oriented_available(context):
             cls.poll_message_set("Requires an Oriented armature")
             return False
@@ -131,6 +141,7 @@ class MMT_OT_Copy(bpy.types.Operator):
         rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
         cached = [(item.rigging, utilities.functions.get_serialized_settings(item.settings))
             for item in rig.data.mmt.rigging if item.rigging != 'NONE' and functions.is_primary_module(item)] if rig else []
+        # nothing to copy...
         if not cached:
             self.report({'WARNING'}, "No rigging modules to copy.")
             return {'CANCELLED'}
@@ -145,11 +156,13 @@ class MMT_OT_Copy(bpy.types.Operator):
             cached = json.loads(prefs.rigging_clipboard) if prefs.rigging_clipboard else []
         except (ValueError, TypeError):
             cached = []
+        # nothing to paste...
         if not cached:
             self.report({'WARNING'}, "The rigging clipboard is empty.")
             return {'CANCELLED'}
         rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
         oriented = oriented or original
+        # nowhere to paste it...
         if not oriented:
             self.report({'WARNING'}, "No armature to paste rigging onto.")
             return {'CANCELLED'}
@@ -159,7 +172,8 @@ class MMT_OT_Copy(bpy.types.Operator):
         for rigging_type, settings_data in cached:
             item = rig.data.mmt.rigging.add()
             rig.data.mmt.module = len(rig.data.mmt.rigging) - 1
-            if not functions.set_module_restored(context, item, rigging_type, settings_data):
+            # failed to restore, so drop the entry again...
+            if not functions.set_module_restored(context, item, rigging_type, settings_data, adapt=True):
                 index = rig.data.mmt.module
                 rig.data.mmt.rigging.remove(index)
                 rig.data.mmt.module = min(index, len(rig.data.mmt.rigging) - 1)
@@ -170,19 +184,19 @@ class MMT_OT_Copy(bpy.types.Operator):
             self.report({'WARNING'}, "Couldn't paste (missing bones): " + ", ".join(failed))
         return {'FINISHED'}
 
-class MMT_MT_ModuleOptions(bpy.types.Menu):
+class MMT_MT_RiggingModuleOptions(bpy.types.Menu):
     bl_idname = "MMT_MT_module_options"
     bl_label = "Rigging Module Options"
 
     def draw(self, context):
-        self.layout.operator(MMT_OT_Rebuild.bl_idname, icon='FILE_REFRESH', text="Rebuild Rigging")
+        self.layout.operator(MMT_OT_RiggingRebuild.bl_idname, icon='FILE_REFRESH', text="Rebuild Rigging")
         self.layout.separator()
-        op = self.layout.operator(MMT_OT_Copy.bl_idname, icon='COPYDOWN', text="Copy Rigging")
+        op = self.layout.operator(MMT_OT_RiggingCopy.bl_idname, icon='COPYDOWN', text="Copy Rigging")
         op.mode = 'COPY'
-        op = self.layout.operator(MMT_OT_Copy.bl_idname, icon='PASTEDOWN', text="Paste Rigging")
+        op = self.layout.operator(MMT_OT_RiggingCopy.bl_idname, icon='PASTEDOWN', text="Paste Rigging")
         op.mode = 'PASTE'
 
-class MMT_OT_Add(bpy.types.Operator):
+class MMT_OT_RiggingAddModule(bpy.types.Operator):
     """Adds an empty rigging module, pick its type in the Settings dropdown to build it."""
     bl_idname = "mmt.add"
     bl_label = "Add Rigging Module"
@@ -226,7 +240,7 @@ class MMT_OT_Add(bpy.types.Operator):
             item.rigging = self.rigging_type
         return {'FINISHED'}
 
-class MMT_MT_AddRigging(bpy.types.Menu):
+class MMT_MT_RiggingAdd(bpy.types.Menu):
     bl_idname = "MMT_MT_add_rigging"
     bl_label = "Add Rigging"
 
@@ -235,7 +249,6 @@ class MMT_MT_AddRigging(bpy.types.Menu):
         if not context.object or context.object.mode != 'POSE':
             return False
         if not utilities.functions.get_oriented_available(context):
-            cls.poll_message_set("Requires an Oriented armature")
             return False
         return context.object.select_get()
 
@@ -251,13 +264,13 @@ class MMT_MT_AddRigging(bpy.types.Menu):
             ('TWIST', 'Twist Chain', 'CON_LOCKTRACK'),
             ('CUSTOM', 'Custom Bones', 'CONSTRAINT_BONE'))
         for identifier, label, icon in items:
-            op = self.layout.operator(MMT_OT_Add.bl_idname, text=label, icon=icon)
+            op = self.layout.operator(MMT_OT_RiggingAddModule.bl_idname, text=label, icon=icon)
             op.rigging_type = identifier
 
 def add_rigging_operator(self, context):
-    self.layout.menu(MMT_MT_AddRigging.bl_idname, text="Add Rigging", icon='ADD')
+    self.layout.menu(MMT_MT_RiggingAdd.bl_idname, text="Add Rigging", icon='ADD')
 
-class MMT_OT_Remove(bpy.types.Operator):
+class MMT_OT_RiggingRemoveModule(bpy.types.Operator):
     """Removes a rigging module, deleting the bones and constraints it created (shared origin/ending bones are kept)."""
     bl_idname = "mmt.remove"
     bl_label = "Remove Rigging Module"
@@ -291,7 +304,7 @@ class MMT_OT_Remove(bpy.types.Operator):
             functions.remove_empty_armature(oriented, rig)
         return {'FINISHED'}
 
-class MMT_OT_Move(bpy.types.Operator):
+class MMT_OT_RiggingMoveModule(bpy.types.Operator):
     """Moves the selected rigging module up or down in the list."""
     bl_idname = "mmt.move"
     bl_label = "Move Rigging Module"
@@ -320,11 +333,18 @@ class MMT_OT_Move(bpy.types.Operator):
         functions.set_module_moved(rig, self.direction)
         return {'FINISHED'}
 
-class MMT_OT_Snap(bpy.types.Operator):
-    """Snaps the active modules kinematic controls onto its current forward pose, so switching to ik doesn't pop."""
+class MMT_OT_RiggingSnap(bpy.types.Operator):
+    """Snaps the active modules kinematics between its forward pose and its ik controls, so switching between them doesn't pop."""
     bl_idname = "mmt.snap"
     bl_label = "Snap IK to FK"
     bl_options = {'REGISTER', 'UNDO'}
+
+    direction: EnumProperty(
+        name="Direction", description="Which way to snap the active modules kinematics.",
+        items=[
+            ('IK_TO_FK', "IK to FK", "Snap the modules ik controls onto its current forward pose."),
+            ('FK_TO_IK', "FK to IK", "Return the modules forward pose to its existing ik solution."),
+            ], default='IK_TO_FK', options={'HIDDEN'})
 
     @classmethod
     def poll(cls, context):
@@ -350,13 +370,18 @@ class MMT_OT_Snap(bpy.types.Operator):
         item = functions.get_active_module(rig, active.bone.name) if active else None
         if not item:
             item = rig.data.mmt.rigging[rig.data.mmt.module]
-        module_file = functions.get_module_file(item.rigging)
-        snap = getattr(module_file, 'set_snapped_kinematics', None) if module_file else None
-        if not snap:
-            self.report({'WARNING'}, "Snapping isn't supported for this rigging type yet.")
-            return {'FINISHED'}
-        if not snap(context, item):
-            self.report({'WARNING'}, "Could not snap - the module may not be fully built.")
+        # fk to ik only needs the reset...
+        if self.direction == 'FK_TO_IK':
+            if not functions.set_kinematics_reset(context, item):
+                self.report({'WARNING'}, "Could not snap - the module may not be fully built.")
+        else:
+            module_file = functions.get_module_file(item.rigging)
+            snap = getattr(module_file, 'set_snapped_kinematics', None) if module_file else None
+            # not every type can snap yet...
+            if not snap:
+                self.report({'WARNING'}, "Snapping isn't supported for this rigging type yet.")
+            elif not snap(context, item):
+                self.report({'WARNING'}, "Could not snap - the module may not be fully built.")
         return {'FINISHED'}
 
 

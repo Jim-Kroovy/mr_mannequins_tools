@@ -4,7 +4,7 @@ from .. import utilities
 from . import _functions as functions
 from . import _operators as operators
 
-class MMT_MT_Templates(bpy.types.Menu):
+class MMT_MT_TemplatesLibrary(bpy.types.Menu):
     bl_idname = "MMT_MT_Templates"
     bl_label = "Template"
 
@@ -16,9 +16,9 @@ class MMT_MT_Templates(bpy.types.Menu):
             if identifier == 'NONE':
                 layout.label(text=name, icon=icon)
                 continue
-            op = layout.operator(operators.MMT_OT_Template.bl_idname, text=name)#, icon=icon)
+            op = layout.operator(operators.MMT_OT_TemplatesLoad.bl_idname, text=name)#, icon=icon)
             op.template = identifier
 
 def add_templates_menu(self, context):
     self.layout.separator()
-    self.layout.menu(MMT_MT_Templates.bl_idname, icon='USER')
+    self.layout.menu(MMT_MT_TemplatesLibrary.bl_idname, icon='USER')

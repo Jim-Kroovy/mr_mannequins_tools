@@ -44,21 +44,65 @@ def get_digitigrade_defaults():
             ],
         # and default custom shapes...
         'shapes' : [
-            {'name' : 'origin', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
-            {'name' : 'target', 'mesh' : 'BALL_QUARTER', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
-            {'name' : 'parent', 'mesh' : 'SQUING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.5, 1.5, 1.5), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+            {'name' : 'origin', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.75, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (2.0, 2.0, 2.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+            {'name' : 'target', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (2.0, 2.0, 2.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+            {'name' : 'parent', 'mesh' : 'SQUING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (4.0, 4.0, 4.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
             {'name' : 'pole', 'mesh' : 'BALL_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
             {'name' : 'vector', 'mesh' : 'ARROW_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
-            {'name' : 'forward', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.5, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+            {'name' : 'forward', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.3, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
             {'name' : 'inverse', 'mesh' : 'BALL_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (0.5, 0.5, 0.5), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
             {'name' : 'offset', 'mesh' : 'BALL_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (0.3, 0.3, 0.3), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
             {'name' : 'stretch', 'mesh' : 'DASH_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
-            {'name' : 'ending', 'mesh' : 'RING_QUARTER', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
-            {'name' : 'floor', 'mesh' : 'CIRCLE_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '-Y', 'upward' : '+X'},
+            {'name' : 'ending', 'mesh' : 'RING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.5, 1.5, 1.5), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+            {'name' : 'floor', 'mesh' : 'CIRCLE_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (2.0, 2.0, 2.0), 'space' : 'CHAIN', 'forward' : '-Y', 'upward' : '+X'},
             {'name' : 'root', 'mesh' : 'CIRCLE_FULL', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'WORLD', 'forward' : '+Z', 'upward' : '-Y'},
             ]
         }
     return defaults
+
+def get_legacy_shapes():
+    """the shapes digitigrade used to default to, before matching opposable (and plantigrades parent)..."""
+    return {
+        'origin' : {'mesh' : 'RING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+        'target' : {'mesh' : 'BALL_QUARTER', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+        'parent' : {'mesh' : 'SQUING_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.5, 1.5, 1.5), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+        'forward' : {'mesh' : 'RING_HALF', 'translation' : (0.0, 0.5, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+        'ending' : {'mesh' : 'RING_QUARTER', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '+Y', 'upward' : '+X'},
+        'floor' : {'mesh' : 'CIRCLE_HALF', 'translation' : (0.0, 0.0, 0.0), 'rotation' : (0.0, 0.0, 0.0), 'scale' : (1.0, 1.0, 1.0), 'space' : 'CHAIN', 'forward' : '-Y', 'upward' : '+X'},
+        }
+
+def get_legacy_match(entry):
+    """true if a saved shape is exactly the old default, ie. it was never actually customised..."""
+    legacy = get_legacy_shapes().get(entry.get('name'))
+    matches = bool(legacy)
+    for prop, value in (legacy or {}).items():
+        saved = entry.get(prop)
+        if isinstance(value, tuple):
+            matches = matches and isinstance(saved, (list, tuple)) and len(saved) == len(value) and all(abs(a - b) < 1e-5 for a, b in zip(saved, value))
+        else:
+            matches = matches and saved == value
+    return matches
+
+def get_ending_axis(ending_eb, primary):
+    """get the ending bones signed axis closest to the chain primary, flattened onto the floor... (or the next closest if that's vertical)..."""
+    axes = [axis * sign for axis in (ending_eb.x_axis, ending_eb.y_axis, ending_eb.z_axis) for sign in (1.0, -1.0)]
+    axes.sort(key=lambda a: a.dot(primary), reverse=True)
+    flat = next((Vector((a.x, a.y, 0.0)) for a in axes if Vector((a.x, a.y)).length > 1e-6), None)
+    return flat.normalized() if flat else None
+
+def get_floor_vector(ending_eb):
+    """get the flattened distance and direction from the ending bones parent to the ending bone..."""
+    distance, direction = 0.0, Vector((0.0, 0.0, 0.0))
+    parent_eb = ending_eb.parent
+    # flatten the parent to ending onto the floor...
+    if parent_eb:
+        start, end = Vector((parent_eb.head.x, parent_eb.head.y, 0.0)), Vector((ending_eb.head.x, ending_eb.head.y, 0.0))
+        distance, direction = utilities.functions.get_distance_direction(start, end)
+    # a genuinely vertical (or parentless) ending uses its own flattened axes and length instead... (one of them always has some planar length)...
+    if distance < 1e-6:
+        axis = next(a for a in (ending_eb.y_axis, ending_eb.z_axis, ending_eb.x_axis) if Vector((a.x, a.y)).length > 1e-6)
+        distance, direction = ending_eb.length, Vector((axis.x, axis.y, 0.0)).normalized()
+    return distance, direction
 
 def add_digitigrade_bones(oriented, rig, settings):
     """add digitigrade rigging bones (including the ik target parent)..."""
@@ -70,6 +114,7 @@ def add_digitigrade_bones(oriented, rig, settings):
     # add the origin bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices["forward"].affix, suffices['origin'].affix
         origin_eb, first_eb = oriented.data.edit_bones.get(suffix), oriented.data.edit_bones.get(suffices['first'].affix)
@@ -82,6 +127,7 @@ def add_digitigrade_bones(oriented, rig, settings):
     # add the root bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['root'].affix + suffices['root'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['root'].affix + suffices['root'].affix)
+    # add the shared root if it's set and not already there...
     if suffices['root'].affix and not existing:
         prefix, suffix = prefices["root"].affix, suffices['root'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'root', search=True)
@@ -122,15 +168,29 @@ def add_digitigrade_bones(oriented, rig, settings):
     # get the foot direction and distance... (flattened on Z axis and accounting for children)...
     start = Vector((ending_eb.head.x, ending_eb.head.y, 0.0))
     end = start
+    # aim at the center of the endings children...
     if ending_eb.children:
         heads = [Vector((eb.head.x, eb.head.y, 0.0)) for eb in ending_eb.children]
         end = sum(heads, Vector((0.0, 0.0, 0.0))) / len(heads)
     distance, direction = utilities.functions.get_distance_direction(start, end)
-    
+    # a leaf ending has no children to point at, so the parent and floor controls fall back on where it came from instead...
+    if distance < 1e-6:
+        distance, direction = get_floor_vector(ending_eb)
+    # the parent and floor controls match the ik targets length (the ending straight down to the floor), the anatomy above only decides their direction...
+    height = (ending_eb.head - start).length
+    if height > 1e-6:
+        distance = height
+    elif distance < 1e-6:
+        distance = ending_eb.length
+
     # get the primary, secondary directions, length and center of the chain...
     points = [rig.data.edit_bones[suffices[n].affix].head for n in chain] + [ending_eb.head]
     primary, secondary, tertiary, length = _functions.get_chain_normals(points, fallback=_functions.get_axis_fallback(points, first_eb, settings.axis), override=_functions.get_axis_override(first_eb, settings.axis))
     center = first_eb.head + (primary * (length * position))
+    # the parent, floor and target controls point along the ending bones own axis closest to the chain... (built head to tail along -direction, so negate it here)...
+    floor_axis = get_ending_axis(ending_eb, primary)
+    if floor_axis:
+        direction = -floor_axis
 
     # add the paw parent bone on the floor oriented along the inverse paw direction... (never parented, child of instead)...
     name = prefices['parent'].affix + suffices['ending'].affix
@@ -446,9 +506,13 @@ def add_digitigrade_rigging(oriented, rig, settings):
 
 def invoke_digitigrade_module(context, module):
     defaults = get_digitigrade_defaults()
+    saved = _functions.get_saved_defaults(module.rigging)
+    # saved shapes still exactly matching the old defaults were never customised, so let the new defaults through...
+    if saved:
+        saved['shapes'] = [s for s in saved.get('shapes', []) if not get_legacy_match(s)]
     _functions.set_default_settings(module.settings, defaults)
     # overlay whatever naming/colors/shapes were last used for this rigging type, if any...
-    _functions.merge_saved_defaults(module.settings, _functions.get_saved_defaults(module.rigging))
+    _functions.merge_saved_defaults(module.settings, saved)
     # try and get existing armatures...
     rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
     oriented = oriented or original
@@ -458,29 +522,30 @@ def invoke_digitigrade_module(context, module):
         _functions.add_chain_names(module.settings, 3, ending=True)
         # digitigrade needs at least a thigh, calf, foot and paw bone to form a valid ik chain...
         print("Select at least four chain bones (e.g. thigh, calf, foot, paw).")
-        return True
-    # add ordinal chain bones from all but the last selected bone...
-    for index, bone in enumerate(selection[:-1]):
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-    # last selected bone is always the ending...
-    ending = module.settings.suffices.add()
-    ending.name, ending.affix, ending.unique, ending.required = 'ending', selection[-1].name, True, True
-    # set the origin if the first chain bone has a parent...
-    origin = selection[0].parent
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    _functions.set_auto_mirror(module.settings, selection, origin)
-    # auto detect a sensible fallback axis from the first chain bones own axes...
-    points = [pb.head for pb in selection]
-    axis = _functions.get_chain_axis(points, selection[0].bone)
-    module.settings.axis = axis
-    # initialize the offset using the scenes unit scale...
-    heads = [b.head for b in selection[1:-1]]
-    module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].head, heads)
-    module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
+    else:
+        # add ordinal chain bones from all but the last selected bone...
+        for index, bone in enumerate(selection[:-1]):
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+        # last selected bone is always the ending...
+        ending = module.settings.suffices.add()
+        ending.name, ending.affix, ending.unique, ending.required = 'ending', selection[-1].name, True, True
+        # set the origin if the first chain bone has a parent...
+        origin = selection[0].parent
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        _functions.set_auto_mirror(module.settings, selection, origin)
+        # auto detect a sensible fallback axis from the first chain bones own axes - but a saved axis (even an explicit AUTO) is itself a remembered choice and wins over a fresh guess...
+        if not (saved and 'axis' in saved.get('settings', {})):
+            points = [pb.head for pb in selection]
+            axis = _functions.get_chain_axis(points, selection[0].bone)
+            module.settings.axis = axis
+        # initialize the offset using the scenes unit scale...
+        heads = [b.head for b in selection[1:-1]]
+        module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].head, heads)
+        module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
     return True
 
 def draw_digitigrade_settings(layout, oriented, module):
@@ -513,12 +578,14 @@ def execute_digitigrade_module(context, module):
         return None
     # if all the bone name suffices are valid...
     validity = _functions.get_naming_validity(suffices)
+    # stop before building with bad suffixes...
     if not all(validity.values()):
         print("Suffix validation failed...")
         print(validity)
         return None
     # and all the prefices are also valid...
     validity = _functions.get_naming_validity(prefices)
+    # or bad prefixes...
     if not all(validity.values()):
         print("Prefix validation failed...")
         print(validity)
@@ -638,13 +705,15 @@ def draw_digitigrade_controls(layout, rig, module):
 
     # snapping needs the forward chain to already be posed in fk, which only makes sense once the module is built...
     layout.separator()
-    layout.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC')
+    row = layout.row(align=True)
+    row.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC').direction = 'IK_TO_FK'
+    row.operator("mmt.snap", text="Snap FK to IK", icon='CON_KINEMATIC').direction = 'FK_TO_IK'
 
 def set_snapped_direct(context, module):
     return _functions.set_snapped_chain_direct(context, module, parented=True, seed=True)
 
 def set_snapped_kinematics(context, module, clear=True):
-    # snap the ik target and pole onto the forward chains current fk pose so switching to ik doesn't pop - forwards read pose_bone.matrix directly since their real rotation comes from a live "Copy Offset Rotation/Location" constraint, not their own basis...
+    # snap the ik target and pole onto the current fk pose so switching doesn't pop... (forwards read matrix, their rotation comes from constraints)
     rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
     if not rig:
         return False
@@ -676,6 +745,7 @@ def set_snapped_kinematics(context, module, clear=True):
     rest_rotation_0 = forwards[0].bone.matrix_local.to_quaternion()
     # a chain thats genuinely straight has no real bend signal, so override secondary with rest_secondary rotated by however far forwards[0] has turned since rest...
     override = _functions.get_axis_override(forwards[0], settings.axis)
+    # no override, so work the pole out from the bend of the chain...
     if override is None:
         chain_length, chain_direction = utilities.functions.get_distance_direction(points[0], points[-1])
         dominant = Vector((0.0, 0.0, 0.0))
@@ -701,7 +771,7 @@ def set_snapped_kinematics(context, module, clear=True):
     parent_pb.location = parent_local.translation
     parent_pb.rotation_quaternion = parent_local.to_quaternion()
 
-    # resolve once from rest data which of vectors own axes points toward the pole, apply that fixed sign to secondary, then read the same axis back off vectors own live just-solved matrix for poles position...
+    # resolve once from rest which vector axis points to the pole, then read that axis off its solved matrix...
     rest_pole_axes = _functions.get_bone_axes(vector_pb.bone, ['+X', '-X', '+Z', '-Z'])
     pole_axis_name, _ = utilities.functions.get_closest_axis(rest_secondary, rest_pole_axes)
     vector_z_sign = 1.0 if pole_axis_name == '+Z' else -1.0

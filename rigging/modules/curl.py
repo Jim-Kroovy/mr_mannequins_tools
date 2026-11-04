@@ -47,6 +47,7 @@ def add_curl_bones(oriented, rig, settings):
     # add the origin bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices['forward'].affix, suffices['origin'].affix
         origin_eb, first_eb = oriented.data.edit_bones.get(suffix), oriented.data.edit_bones.get(suffices['first'].affix)
@@ -229,34 +230,35 @@ def invoke_curl_module(context, module):
         _functions.add_chain_names(module.settings, 2)
         # curl needs at least two bones to be relevant...
         print("Select at least two chain bones.")
-        return True
-    module.settings.axes.clear()
-    for index, bone in enumerate(selection):
-        # so we can detect the bones used to add the rigging...
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-        # one set of curl axes per ordinal bone, defaults keep the current copy-all-axes behaviour...
-        module.settings.axes.add().name = suffix.name
-    # restore saved axis toggles after rebuilding ordinal entries from the current selection...
-    saved_axes = saved.get('settings', {}).get('axes', []) if saved else []
-    saved_axes = {entry.get('name'): entry for entry in saved_axes if entry.get('name')}
-    for axes in module.settings.axes:
-        values = saved_axes.get(axes.name)
-        if values:
-            for prop in ('x', 'y', 'z'):
-                if prop in values:
-                    setattr(axes, prop, values[prop])
-    # set the origin if the first chain bone has a parent...
-    origin = selection[0].parent
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    _functions.set_auto_mirror(module.settings, selection, origin)
-    # auto detect a sensible fallback axis from the first chain bones own axes...
-    points = [pb.head for pb in selection]
-    axis = _functions.get_chain_axis(points, selection[0].bone)
-    module.settings.axis = axis
+    else:
+        module.settings.axes.clear()
+        for index, bone in enumerate(selection):
+            # so we can detect the bones used to add the rigging...
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+            # one set of curl axes per ordinal bone, defaults keep the current copy-all-axes behaviour...
+            module.settings.axes.add().name = suffix.name
+        # restore saved axis toggles after rebuilding ordinal entries from the current selection...
+        saved_axes = saved.get('settings', {}).get('axes', []) if saved else []
+        saved_axes = {entry.get('name'): entry for entry in saved_axes if entry.get('name')}
+        for axes in module.settings.axes:
+            values = saved_axes.get(axes.name)
+            if values:
+                for prop in ('x', 'y', 'z'):
+                    if prop in values:
+                        setattr(axes, prop, values[prop])
+        # set the origin if the first chain bone has a parent...
+        origin = selection[0].parent
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        _functions.set_auto_mirror(module.settings, selection, origin)
+        # auto detect a sensible fallback axis from the first chain bones own axes - but a saved axis (even an explicit AUTO) is itself a remembered choice and wins over a fresh guess...
+        if not (saved and 'axis' in saved.get('settings', {})):
+            points = [pb.head for pb in selection]
+            axis = _functions.get_chain_axis(points, selection[0].bone)
+            module.settings.axis = axis
     return True
 
 def draw_curl_settings(layout, oriented, module):

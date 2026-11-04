@@ -1,8 +1,10 @@
 import bpy
 
+from .. import utilities
+
 from . import _functions as functions
 
-class MMT_PT_Orientation(bpy.types.Panel):
+class MMT_PT_OrientationPanel(bpy.types.Panel):
     bl_idname = "MMT_PT_Orientation"
     bl_label = "Orientation"
     bl_order = 0
@@ -26,6 +28,10 @@ class MMT_PT_Orientation(bpy.types.Panel):
         column.prop(settings, 'oriented_shape')
         column.separator()
         operator = column.operator("mmt.oriented", text=functions.get_oriented_label(obj), icon='GROUP_BONE')
-        operator.max_length = settings.max_length
-        operator.original_shape = settings.original_shape
-        operator.oriented_shape = settings.oriented_shape
+        # only pass on what's genuinely been remembered, otherwise let the operator infer it from the bones...
+        if settings.original_identifier:
+            operator.max_length = settings.max_length
+        if utilities.functions.get_available_shape(settings.original_identifier):
+            operator.original_shape = settings.original_shape
+        if utilities.functions.get_available_shape(settings.oriented_identifier):
+            operator.oriented_shape = settings.oriented_shape

@@ -53,6 +53,7 @@ def add_spline_bones(oriented, rig, settings):
     # add the origin bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices["forward"].affix, suffices['origin'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'origin', search=True)
@@ -243,6 +244,7 @@ def set_spline_bones(oriented, rig, settings, targets):
     # follow the optional origin through a child of constraint...
     origin = prefices['forward'].affix + suffices['origin'].affix
     origin_bb = rig.data.bones.get(origin)
+    # the parent follows the origin if there is one...
     if origin_bb:
         parent_pb = rig.pose.bones.get(parent)
         child_of = parent_pb.constraints.new('CHILD_OF')
@@ -391,9 +393,10 @@ def add_spline_rigging(oriented, rig, settings):
 
 def invoke_spline_module(context, module):
     defaults = get_spline_defaults()
+    saved = _functions.get_saved_defaults(module.rigging)
     _functions.set_default_settings(module.settings, defaults)
     # overlay whatever naming/colors/shapes were last used for this rigging type, if any...
-    _functions.merge_saved_defaults(module.settings, _functions.get_saved_defaults(module.rigging))
+    _functions.merge_saved_defaults(module.settings, saved)
     # try and get existing armatures...
     rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
     oriented = oriented or original
@@ -403,25 +406,26 @@ def invoke_spline_module(context, module):
         _functions.add_chain_names(module.settings, 2)
         # spline needs at least two chain bones to form a curve...
         print("Select at least three chain bones.")
-        return True
-    for index, bone in enumerate(selection):
-        # so we can detect the bones used to add the rigging...
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-    # set the origin if we find one...
-    origin = selection[0].parent
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    # offer mirroring only when the complete flipped chain exists... (including its origin)...
-    _functions.set_auto_mirror(module.settings, selection, origin)
-    # auto detect a sensible fallback axis from the first chain bones own axes...
-    points = [pb.head for pb in selection]
-    axis = _functions.get_chain_axis(points, selection[0].bone)
-    module.settings.axis = axis
-    # initialize the offset using the scenes unit scale...
-    module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
+    else:
+        for index, bone in enumerate(selection):
+            # so we can detect the bones used to add the rigging...
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+        # set the origin if we find one...
+        origin = selection[0].parent
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        # offer mirroring only when the complete flipped chain exists... (including its origin)...
+        _functions.set_auto_mirror(module.settings, selection, origin)
+        # auto detect a sensible fallback axis from the first chain bones own axes - but a saved axis (even an explicit AUTO) is itself a remembered choice and wins over a fresh guess...
+        if not (saved and 'axis' in saved.get('settings', {})):
+            points = [pb.head for pb in selection]
+            axis = _functions.get_chain_axis(points, selection[0].bone)
+            module.settings.axis = axis
+        # initialize the offset using the scenes unit scale...
+        module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
     return True
 
 def draw_spline_settings(layout, oriented, module):
@@ -538,7 +542,9 @@ def draw_spline_controls(layout, rig, module):
 
     # snapping needs the forward chain to already be posed in fk, which only makes sense once the module is built...
     layout.separator()
-    layout.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC')
+    row = layout.row(align=True)
+    row.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC').direction = 'IK_TO_FK'
+    row.operator("mmt.snap", text="Snap FK to IK", icon='CON_KINEMATIC').direction = 'FK_TO_IK'
 
 def get_target_names(rig, module, prefices, first_name, last_name):
     # find targets by collection and rest order (original bone lengths changed during build)...
@@ -550,6 +556,7 @@ def get_target_names(rig, module, prefices, first_name, last_name):
     # bone.head/.tail are parent relative, need the _local variants for armature space rest positions...
     first_head, last_tail = rig.data.bones[first_name].head_local, rig.data.bones[last_name].tail_local
     primary = (last_tail - first_head)
+    # sort along the main axis...
     if primary.length > 1e-6:
         primary.normalize()
         target_bones.sort(key=lambda b: (b.head_local - first_head).dot(primary))
@@ -623,6 +630,7 @@ def set_snapped_kinematics(context, module, clear=True):
         parent_pb.rotation_quaternion = rest_relative.inverted() @ forward_pbs[0].matrix.to_quaternion()
         _functions.set_settled_position(parent_pb, points[0])
     for target_pb, point, desired_rotation in zip(target_pbs, resampled, desired_rotations):
+        # solve the target onto its curve point...
         if target_pb:
             desired = Matrix.Translation(point) @ desired_rotation.to_4x4()
             # convert unconstrained spline targets directly from armature to basis space...
@@ -645,6 +653,7 @@ def set_snapped_kinematics(context, module, clear=True):
             current_points = [pb.head.copy() for pb in stretch_pbs] + [stretch_pbs[-1].tail.copy()]
             current_resampled, _ = get_resampled_points(current_points, settings.count)
             error = resampled[i] - current_resampled[i]
+            # still off, so nudge it and go around again...
             if error.length > 1e-3:
                 target_pb.location += target_pb.matrix_basis.to_3x3() @ target_pb.matrix.to_3x3().inverted() @ error
                 bpy.context.view_layer.update()

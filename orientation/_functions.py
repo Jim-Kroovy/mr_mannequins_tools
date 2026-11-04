@@ -2,7 +2,7 @@ import bpy
 
 import math
 
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 from .. import utilities
 
@@ -14,7 +14,7 @@ from .. import retargeting
 
 
 def get_bone_chained(bone):
-    # a bone with nothing of its own beneath it cant be a continuation of anything - a chain by definition keeps going, so a leaf always ends one rather than being part of one, regardless of how it's angled...
+    # a chain keeps going by definition, so a leaf always ends one however it's angled...
     if not bone.children:
         return False
     # if this bone has a parent it could be part of a chain...
@@ -134,16 +134,19 @@ def set_corrected_actions(armature, corrections):
         active = armature.animation_data.action
         try:
             for action in actions:
+                # only armatures with an action have keys to correct...
                 if action:
                     armature.animation_data.action = action
                     channels = retargeting.functions.get_bone_channels(action)
                     for name, correction in corrections.items():
                         pose_bone = armature.pose.bones.get(name)
                         props = channels.get(name, {})
+                        # only bones with animated channels get corrected...
                         if pose_bone and props:
                             frames = sorted({kp.co.x for curves in props.values() for fc in curves.values() for kp in fc.keyframe_points})
                             for frame in frames:
                                 basis = retargeting.functions.get_evaluated_basis(pose_bone, channels, frame)
+                                # write the correction back into whichever rotation channel is keyed...
                                 if 'rotation_quaternion' in props:
                                     pose_bone.rotation_mode = 'QUATERNION'
                                     pose_bone.rotation_quaternion = correction @ basis.to_quaternion()
@@ -151,6 +154,7 @@ def set_corrected_actions(armature, corrections):
                                 elif 'rotation_euler' in props:
                                     pose_bone.rotation_euler = (correction @ basis.to_quaternion()).to_euler(pose_bone.rotation_mode)
                                     pose_bone.keyframe_insert('rotation_euler', frame=frame)
+                                # location gets the same correction...
                                 if 'location' in props:
                                     pose_bone.location = correction @ basis.to_translation()
                                     pose_bone.keyframe_insert('location', frame=frame)
@@ -196,10 +200,36 @@ def set_shaped_bones(original, oriented, names, original_shape=None, oriented_sh
         if pose_bone:
             pose_bone.custom_shape = shape
 
+def get_remembered_shape(armature, identifier, tier):
+    # the first still available shape any hierarchy member remembers, else inferred from what the tiers bones actually share...
+    rig, oriented, original = utilities.functions.get_armature_hierarchy(armature)
+    remembered = [getattr(a.data.mmt.orientation, identifier) for a in (rig, oriented, original) if a]
+    shape = next((r for r in remembered if utilities.functions.get_available_shape(r)), None)
+    # no remembered shape, so fall back to the one the bones share...
+    if not shape and oriented and original:
+        names = [b.name for b in original.data.bones if b.name in oriented.data.bones]
+        shape = utilities.functions.get_shared_shape(oriented if tier == 'ORIENTED' else original, names)
+    # a remembered shape file that's since been removed falls back to none rather than whatever was last used...
+    if not shape and any(remembered):
+        shape = 'NONE'
+    return shape
+
+def set_remembered_settings(armature, max_length, original_shape, oriented_shape):
+    # every hierarchy member remembers the same settings, so updating from any of them reselects them... (a preserved None shape has nothing to remember)...
+    for member in utilities.functions.get_armature_hierarchy(armature):
+        # every member of the trio remembers the same settings...
+        if member:
+            settings = member.data.mmt.orientation
+            settings.max_length = max_length
+            if original_shape:
+                settings.original_shape = original_shape
+            if oriented_shape:
+                settings.oriented_shape = oriented_shape
+
 def get_oriented_label(armature):
     # same existing-pair check mmt.oriented itself branches on, so the label always matches what clicking it will actually do...
     _, oriented, existing = utilities.functions.get_armature_hierarchy(armature)
-    return "Update Oriented Armature" if oriented and existing else "Add Oriented Armature"
+    return "Update Oriented Armature" if oriented and existing else "Create Oriented Armature"
 
 def add_oriented_armature(original, max_length=None, original_shape='BALL_FULL', oriented_shape=None, use_actions=False):
     # the bone orientation math below is all in local edit-bone space, but clear the originals own object transform anyway (just in case), restoring it onto the new oriented armature once we're done...
@@ -278,6 +308,7 @@ def add_oriented_armature(original, max_length=None, original_shape='BALL_FULL',
                 retargets.append(retarget)
             # rename the retargeted actions and get rid of the old ones...
             for i, action in enumerate(actions):
+                # swap the old action for its retargeted copy under the same name...
                 if action:
                     name = action.name
                     bpy.data.actions.remove(action)
@@ -285,6 +316,24 @@ def add_oriented_armature(original, max_length=None, original_shape='BALL_FULL',
                         retargets[i].name = name
             # then rebuild the nla for the oriented armature with the retargeted actions...
             utilities.functions.set_copied_nla(oriented, tracks, retargets)
+            # every retargeted action ends up in a muted, locked stash... (the rebuild already recreates the muted tracks, so only add what's missing)
+            stashed = {strip.action for track in oriented.animation_data.nla_tracks if track.mute and track.lock for strip in track.strips if strip.action}
+            for retarget in retargets:
+                # only stash each retargeted action once...
+                if retarget and retarget not in stashed:
+                    utilities.functions.set_stashed_action(oriented, retarget)
+                    stashed.add(retarget)
+            # finish at rest with every action in the stash... (clearing the active action alone leaves bones frozen, so reset each basis too)
+            oriented.animation_data.action = None
+            for pose_bone in oriented.pose.bones:
+                pose_bone.matrix_basis = Matrix.Identity(4)
+            # the originals actions now live on oriented, so clear its active action and orphaned tracks, then reset its pose...
+            if original.animation_data:
+                original.animation_data.action = None
+                for track in list(original.animation_data.nla_tracks):
+                    original.animation_data.nla_tracks.remove(track)
+                for pose_bone in original.pose.bones:
+                    pose_bone.matrix_basis = Matrix.Identity(4)
     finally:
         # restore onto whichever ended up as the hierarchy's new top (oriented once it exists, otherwise original itself)...
         utilities.functions.set_restored_transform(oriented if oriented else original, stored_transform)

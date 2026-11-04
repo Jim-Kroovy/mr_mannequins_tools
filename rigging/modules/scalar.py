@@ -64,6 +64,7 @@ def add_scalar_bones(oriented, rig, settings):
     # add the origin bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices["forward"].affix, suffices['origin'].affix
         origin_eb, first_eb = oriented.data.edit_bones.get(suffix), oriented.data.edit_bones.get(suffices['first'].affix)
@@ -77,15 +78,12 @@ def add_scalar_bones(oriented, rig, settings):
     chain = [s.name for s in suffices if s.name not in {'origin', 'ending', 'root', 'pivot'}]
     # scalar has no distinct ending bone, the last ordinal chain bone is the ending...
     ending = utilities.functions.get_ordinal_index(len(suffices) - 1).lower()
-    tails, parents = [n for n in chain[1:]], [suffices['origin'].name] + [n for n in chain[:-1]]
+    parents = [suffices['origin'].name] + [n for n in chain[:-1]]
     layers = ['forward', 'inverse', 'offset', 'stretch']
     for index, suffix in enumerate(chain):
-        # get the oriented and tail edit bones...
+        # every layer copies the oriented bones exact head and tail, only the roll gets picked... (redirecting the tail changes its axis and length)...
         oriented_eb = oriented.data.edit_bones.get(suffices[suffix].affix)
-        tail_eb = None
-        if index < len(tails):
-            tail_eb = oriented.data.edit_bones.get(suffices[tails[index]].affix)
-        head, tail = oriented_eb.head, _functions.get_bone_tail(oriented_eb, tail_eb, length=oriented_eb.length if index == len(chain) - 1 else 0.0)
+        head, tail = oriented_eb.head.copy(), oriented_eb.tail.copy()
         # get the axes of the bone that are not closest to the tail direction...
         axes = _functions.get_roll_axes(oriented_eb, head, tail)
         # add a bone for each prefix...
@@ -305,9 +303,10 @@ def add_scalar_rigging(oriented, rig, settings):
 
 def invoke_scalar_module(context, module):
     defaults = get_scalar_defaults()
+    saved = _functions.get_saved_defaults(module.rigging)
     _functions.set_default_settings(module.settings, defaults)
     # overlay whatever naming/colors/shapes were last used for this rigging type, if any...
-    _functions.merge_saved_defaults(module.settings, _functions.get_saved_defaults(module.rigging))
+    _functions.merge_saved_defaults(module.settings, saved)
     # try and get existing armatures...
     rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
     oriented = oriented or original
@@ -317,27 +316,28 @@ def invoke_scalar_module(context, module):
         _functions.add_chain_names(module.settings, 2)
         # scalar needs at least two chain bones...
         print("Select at least two chain bones.")
-        return True
-    for index, bone in enumerate(selection):
-        # so we can detect the bones used to add the rigging...
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-    # set the origin if we find one...
-    origin = selection[0].parent
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    _functions.set_auto_mirror(module.settings, selection, origin)
-    # auto detect a sensible fallback axis from the first chain bones own axes...
-    points = [pb.head for pb in selection]
-    axis = _functions.get_chain_axis(points, selection[0].bone)
-    module.settings.axis = axis
-    # initialize the offset using the scenes unit scale...
-    heads = [b.head for b in selection[1:-1]]
-    # scalar has no distinct ending bone, so the chain actually runs to the last bones tail...
-    module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].tail, heads)
-    module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
+    else:
+        for index, bone in enumerate(selection):
+            # so we can detect the bones used to add the rigging...
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+        # set the origin if we find one...
+        origin = selection[0].parent
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        _functions.set_auto_mirror(module.settings, selection, origin)
+        # auto detect a sensible fallback axis from the first chain bones own axes - but a saved axis (even an explicit AUTO) is itself a remembered choice and wins over a fresh guess...
+        if not (saved and 'axis' in saved.get('settings', {})):
+            points = [pb.head for pb in selection]
+            axis = _functions.get_chain_axis(points, selection[0].bone)
+            module.settings.axis = axis
+        # initialize the offset using the scenes unit scale...
+        heads = [b.head for b in selection[1:-1]]
+        # scalar has no distinct ending bone, so the chain actually runs to the last bones tail...
+        module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].tail, heads)
+        module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
     return True
 
 def draw_scalar_settings(layout, oriented, module):
@@ -472,13 +472,16 @@ def draw_scalar_controls(layout, rig, module):
 
     # snapping needs the forward chain to already be posed in fk, which only makes sense once the module is built...
     layout.separator()
-    layout.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC')
+    row = layout.row(align=True)
+    row.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC').direction = 'IK_TO_FK'
+    row.operator("mmt.snap", text="Snap FK to IK", icon='CON_KINEMATIC').direction = 'FK_TO_IK'
 
 def set_snapped_direct(context, module):
     # solve the standard parent and target (leave constrained setups to the evaluated snap)...
     rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
     if not rig or module.settings.floor:
         return False
+    # only the standard setup can be solved directly...
     suffices, prefices = module.settings.suffices, module.settings.prefices
     chain = [s.name for s in suffices if s.name != 'origin']
     if not chain:
@@ -496,11 +499,13 @@ def set_snapped_direct(context, module):
     paths = tuple(pb.path_from_id() + '.' for pb in (parent, target))
     if rig.animation_data and any(fc.data_path.startswith(paths) for fc in rig.animation_data.drivers):
         return False
+    # get the parents rest without its own transforms...
     ancestor = parent.parent
     args = {'parent_matrix': ancestor.matrix, 'parent_matrix_local': ancestor.bone.matrix_local} if ancestor else {}
     rest = parent.bone.convert_local_to_pose(Matrix.Identity(4), parent.bone.matrix_local, **args)
     if any(abs(v - 1.0) > 1e-6 for v in rest.to_scale()) or abs(rest.to_3x3().determinant() - 1.0) > 1e-6:
         return False
+    # scale and aim the parent so the target lands on the last forwards tail...
     offset = parent.bone.matrix_local.inverted() @ target.bone.matrix_local
     tail = forwards[-1].tail.copy()
     desired = Matrix.Translation(tail) @ forwards[-1].matrix.to_3x3().to_4x4()
@@ -516,6 +521,7 @@ def set_snapped_direct(context, module):
     parent_matrix = rest @ parent_basis
     target_rest = parent_matrix @ offset
     target_rotation = target_rest.to_quaternion().inverted() @ desired.to_quaternion()
+    # seed the inverse and stretch bones from the forwards...
     seeded = []
     for name, forward in zip(chain, forwards):
         for prefix in ('inverse', 'stretch'):
@@ -523,6 +529,7 @@ def set_snapped_direct(context, module):
             if bone is None:
                 return False
             seeded.append((bone, forward.matrix_basis.to_quaternion()))
+    # then write it all onto the bones...
     parent.rotation_mode = target.rotation_mode = 'QUATERNION'
     parent.matrix_basis = parent_basis
     parent.rotation_quaternion = basis_rotation
@@ -535,7 +542,7 @@ def set_snapped_direct(context, module):
     return True
 
 def set_snapped_kinematics(context, module, clear=True):
-    # snap the ik target and pole onto the forward chains current fk pose so switching to ik doesn't pop - unlike opposable/plantigrade, scalar has no distinct ending bone or "Root/Vector Transform" child ofs, just parent (a duplicate of the first chain bone) rotating and scaling to aim+stretch target/pole/vector toward the reach point...
+    # snap the ik target and pole onto the current fk pose so switching doesn't pop... (scalar just has parent aiming and stretching everything at the reach point)
     rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
     if not rig:
         return False
@@ -566,6 +573,7 @@ def set_snapped_kinematics(context, module, clear=True):
     rest_rotation_0 = forwards[0].bone.matrix_local.to_quaternion()
     # a chain thats genuinely straight has no real bend signal, so override secondary with rest_secondary rotated by however far forwards[0] has turned since rest...
     override = _functions.get_axis_override(forwards[0], settings.axis)
+    # no override, so work the pole out from the bend of the chain...
     if override is None:
         chain_length, chain_direction = utilities.functions.get_distance_direction(points[0], points[-1])
         dominant = Vector((0.0, 0.0, 0.0))
@@ -590,13 +598,14 @@ def set_snapped_kinematics(context, module, clear=True):
     current_direction = current_estimate - parent_pb.head
     desired_direction = ending_matrix.translation - parent_pb.head
     parent_pb.rotation_mode = 'QUATERNION'
+    # line the parent up with the desired direction...
     if current_direction.length > 1e-6 and desired_direction.length > 1e-6:
         alignment = current_direction.normalized().rotation_difference(desired_direction.normalized())
         world_rotation = parent_pb.matrix.to_quaternion()
         parent_pb.rotation_quaternion = parent_pb.rotation_quaternion @ world_rotation.inverted() @ (alignment @ world_rotation)
         parent_pb.scale = parent_pb.scale * (desired_direction.length / current_direction.length)
 
-    # resolve once from rest data which of vectors own axes points toward the pole, apply that fixed sign to secondary, then read the same axis back off vectors own live just-solved matrix for poles position...
+    # resolve once from rest which vector axis points to the pole, then read that axis off its solved matrix...
     rest_pole_axes = _functions.get_bone_axes(vector_pb.bone, ['+X', '-X', '+Z', '-Z'])
     pole_axis_name, _ = utilities.functions.get_closest_axis(rest_secondary, rest_pole_axes)
     vector_z_sign = 1.0 if pole_axis_name == '+Z' else -1.0

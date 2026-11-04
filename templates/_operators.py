@@ -5,10 +5,10 @@ from bpy.props import (EnumProperty, BoolProperty)
 from .. import utilities
 from . import _functions as functions
 
-class MMT_OT_Template(bpy.types.Operator):
+class MMT_OT_TemplatesLoad(bpy.types.Operator):
     """Adds a saved template from the Mr Mannequins template library"""
     bl_idname = "mmt.template"
-    bl_label = "Template"
+    bl_label = "Load Template"
     bl_options = {'REGISTER', 'UNDO'}
 
     def get_template_items(self, context):
@@ -47,12 +47,14 @@ class MMT_OT_Template(bpy.types.Operator):
         col.prop(self, 'ignore_animations')
 
     def execute(self, context):
+        # nothing saved to load...
         if self.template == 'NONE':
             self.report({'ERROR'}, "No saved templates found.")
             return {'CANCELLED'}
         objects, failure = functions.load_saved_template(
             context, self.template, self.ignore_armatures, self.ignore_meshes,
             self.ignore_materials, self.ignore_animations)
+        # pass on whatever failed...
         if failure:
             self.report({'ERROR'}, failure)
             return {'CANCELLED'}

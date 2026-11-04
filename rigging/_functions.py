@@ -34,7 +34,7 @@ def get_roll_axes(bone, head, tail):
     _, direction = utilities.functions.get_distance_direction(head, tail)
     axes = get_bone_axes(bone, ['+X', '-X', '+Y', '-Y', '+Z', '-Z'])
     closest, _ = utilities.functions.get_closest_axis(direction, axes)
-    # and exclude it from the result... (positive and negative)...
+    # and exclude it from the result... (positive and negative)
     axes = get_bone_axes(bone, [a for a in ['+X', '-X', '+Y', '-Y', '+Z', '-Z'] if not a.endswith(closest[1])])
     return axes
 
@@ -82,6 +82,7 @@ def get_central_position(start, end, heads):
     central, closest = midpoint, float('inf')
     for head in heads:
         projection = (head - start).dot(primary)
+        # keep the projection closest to the midpoint...
         if abs(projection - midpoint) < closest:
             closest = abs(projection - midpoint)
             central = projection
@@ -186,6 +187,7 @@ def get_tracked_basis(rest, aim, rotation, rest_offset, position):
         current = matrix.to_3x3().col[1].normalized()
         swing = current.rotation_difference(aim.normalized())
         return Matrix.LocRotScale(rest.translation, swing @ matrix.to_quaternion(), Vector((1.0, 1.0, 1.0)))
+    # start from the rotation, then correct the roll if it misses the position...
     basis = get_tracked_matrix(Quaternion()).to_quaternion().inverted() @ rotation
     vector_matrix = get_tracked_matrix(basis)
     if ((vector_matrix @ rest_offset).translation - position).length >= 0.001:
@@ -209,6 +211,7 @@ def get_hierarchy_matrix(pose_bone, get_basis, roots, cache):
     if pose_bone.name in cache:
         return cache[pose_bone.name]
     basis = Matrix.Identity(4) if pose_bone.name in roots else get_basis(pose_bone)
+    # evaluate through the parent...
     if pose_bone.parent:
         parent_matrix = get_hierarchy_matrix(pose_bone.parent, get_basis, roots, cache)
         matrix = parent_matrix @ pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local @ basis
@@ -218,9 +221,10 @@ def get_hierarchy_matrix(pose_bone, get_basis, roots, cache):
     return matrix
 
 def get_compensated_local(pose_bone, desired_matrix, get_matrix):
-    # bones with a live "Root Transform" child of get root motion re-applied on top of their own basis, so solve backward through it assuming full attachment, then lerp/slerp against the unconstrained solve by influence, matching how blender itself blends a partial child of - only exact at 0 or 1 influence, accepted limitation since animators toggle this, not animate it...
+    # root transform re-applies root motion on top of the basis, so solve back through it and blend by influence... (only exact at 0 or 1, accepted since it gets toggled)
     unconstrained = pose_bone.bone.matrix_local.inverted() @ desired_matrix
     root = pose_bone.constraints.get("Root Transform")
+    # factor out the root child of...
     if root and root.influence > 0.0:
         root_pb = root.target.pose.bones.get(root.subtarget)
         root_matrix = get_matrix(root_pb)
@@ -240,19 +244,21 @@ def set_snapped_target(target_pb, ending_matrix, get_matrix):
     target_pb.rotation_quaternion = local.to_quaternion()
 
 def set_snapped_vector(vector_pb, get_matrix, ending_matrix, primary, secondary, origin_pb):
-    # aims vector at the ending bone with a stable roll, matching the retargeting bakes own inlined version - origin_pb must be vectors real blender-parent (the chains origin bone), not any other chain bone, to carry its rest-relative transform into world space correctly...
+    # aim vector at the ending with a stable roll, same as the retargeting bake... (origin_pb must be vectors real parent to reach world space right)
     if origin_pb:
         origin_matrix = get_matrix(origin_pb)
         rest = origin_matrix @ origin_pb.bone.matrix_local.inverted() @ vector_pb.bone.matrix_local
     else:
         rest = vector_pb.bone.matrix_local
     aim = ending_matrix.translation - rest.translation
+    # only build axes from a usable aim...
     if aim.length > 1e-6:
         y_axis = primary.normalized()
         z_axis = secondary - secondary.dot(y_axis) * y_axis
+        # and only if the secondary isn't parallel to it...
         if z_axis.length > 1e-6:
             z_axis.normalize()
-            # secondarys handedness only defines the bend plane, not which of [+secondary, -secondary] this bone was built to roll toward - callers resolve that fixed sign once from rest data and pre-apply it, so this just trusts whatever sign it was handed...
+            # secondary only defines the bend plane, not which way this bone rolls... (callers apply that fixed sign from rest, so just trust it)
             x_axis = y_axis.cross(z_axis)
             rotation = Matrix((x_axis, y_axis, z_axis)).transposed().to_quaternion()
             basis, vector_matrix = get_tracked_basis(rest, aim, rotation, Matrix.Identity(4), rest.translation)
@@ -261,12 +267,13 @@ def set_snapped_vector(vector_pb, get_matrix, ending_matrix, primary, secondary,
             return vector_matrix
 
 def set_snapped_pole(pole_pb, position, vector_matrix, get_matrix):
-    # pole has a live child of on vector ("Vector Transform") and another on root ("Root Transform"), only ever meaningfully 1 or 0, so solve backward through whichever ones active - vector_matrix is set_snapped_vectors own already-computed result, avoiding a stale read before the next depsgraph update...
+    # pole has a vector and a root child of that are only ever 1 or 0, so solve back through the active one... (vector_matrix avoids a stale read)
     pole_rest = pole_pb.bone.matrix_local
     desired_matrix = Matrix.Translation(position) @ pole_rest.to_3x3().to_4x4()
 
     vector_influence = pole_pb["Vector Influence"] if "Vector Influence" in pole_pb else 1.0
     root_con = pole_pb.constraints.get("Root Transform")
+    # solve back through whichever space switch is active...
     if vector_influence > 0.0 and vector_matrix is not None:
         vector_con = pole_pb.constraints.get("Vector Transform")
         local = pole_rest.inverted() @ (vector_matrix @ vector_con.inverse_matrix).inverted() @ desired_matrix
@@ -276,11 +283,11 @@ def set_snapped_pole(pole_pb, position, vector_matrix, get_matrix):
         local = pole_rest.inverted() @ (root_matrix @ root_con.inverse_matrix).inverted() @ desired_matrix
     else:
         local = pole_rest.inverted() @ desired_matrix
-    # only ever touch location, same as set_settled_position - setting rotation would force a real compensating rotation onto pole to cancel out whichever constraint is driving it, even though the final constrained result is right...
+    # only ever touch location, same as set_settled_position... (rotation would fight whichever constraint is driving the pole)
     pole_pb.location = local.translation
 
 def get_snapped_parent(parent_pb, ball_pb, ending_pb, get_matrix, step_height=0.1):
-    # plantigrades foot parent/control: parent snaps to the ball or the ankle/target, control takes the balls own local rotation (X is the one real hinge axis, per the "Copy Rotator/Control Rotation" constraints) - pure computation, no bone writes, returns (control_x, parent_local_matrix)...
+    # plantigrades foot, parent snaps to the ball or ankle and control takes the balls hinge on x... (pure maths, returns control_x and parent_local)
     def get_local_x(pose_bone, matrix, parent_pose_bone, parent_matrix):
         rest = parent_pose_bone.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local
         local = (parent_matrix @ rest).inverted() @ matrix
@@ -295,10 +302,11 @@ def get_snapped_parent(parent_pb, ball_pb, ending_pb, get_matrix, step_height=0.
     as_child_of_ball = ball_matrix @ ball_rest_offset
     as_child_of_target = ending_matrix @ target_rest_offset
 
+    # a negative ball angle goes onto the control instead...
     if ball_angle < 0.0:
         control_x = min(math.radians(90.0), -ball_angle)
         local = get_compensated_local(parent_pb, as_child_of_ball, get_matrix)
-        # the balls hinge amount is already applied separately through control_x, so leaving it in parents local x too would double it up - lerp it out with how far the heel has risen (ball-to-ankle radius * sin of the hinge angle) instead of a hard pop at the threshold...
+        # the hinge is already applied through control_x, leaving it in parents local x doubles it... (lerp out with heel rise so it doesn't pop)
         radius = (ending_matrix.translation - ball_matrix.translation).length
         height = radius * math.sin(-ball_angle)
         blend = max(0.0, min(1.0, height / step_height)) if step_height > 1e-6 else 1.0
@@ -317,6 +325,36 @@ def set_bones_reset(*pose_bones, update=True):
             pose_bone.matrix_basis = Matrix.Identity(4)
     if update:
         bpy.context.view_layer.update()
+
+def set_kinematics_reset(context, module):
+    # the inverse of set_snapped_kinematics, hands the forward chain back to what the ik is solving... (rotation only, origin and root roles are never touched)
+    rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
+    if not rig:
+        return False
+    # every suffix except origin and root is part of the forward chain...
+    settings = module.settings
+    forward_affix = settings.prefices['forward'].affix if 'forward' in settings.prefices else ''
+    forwards = []
+    for suffix in settings.suffices:
+        if suffix.name in ('origin', 'root'):
+            continue
+        pose_bone = rig.pose.bones.get(forward_affix + suffix.affix)
+        if pose_bone:
+            forwards.append(pose_bone)
+    if not forwards:
+        return False
+    # hand each one back to its constraint...
+    identity = Quaternion()
+    for pose_bone in forwards:
+        rotation = pose_bone.constraints.get("Copy Offset Rotation")
+        if rotation:
+            rotation.influence = 1.0
+        # rotation only clear, writes all three properties so the active mode reads right and the others don't go stale... (location and scale untouched)
+        pose_bone.rotation_quaternion = identity
+        pose_bone.rotation_euler = identity.to_euler(pose_bone.rotation_mode if pose_bone.rotation_mode in {'XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX'} else 'XYZ')
+        pose_bone.rotation_axis_angle = [0.0, 0.0, 1.0, 0.0]
+    context.view_layer.update()
+    return True
 
 def set_settled_position(pole_pb, position, iterations=4):
     # only touches location, which stays affine through any child of stack - one correction usually lands exactly...
@@ -548,6 +586,7 @@ def add_spline_drivers(rig, name, forward, targets, mappings, weights):
 
 def add_rotation_constraints(rig, name, copy, limit, transform, drive=False):
     rig_pb = rig.pose.bones.get(name)
+    # add the copy rotation if the settings ask for it...
     if copy:
         copy_rot = rig_pb.constraints.new('COPY_ROTATION')
         copy_rot.target, copy_rot.subtarget = rig, copy['subtarget']
@@ -568,18 +607,21 @@ def add_rotation_constraints(rig, name, copy, limit, transform, drive=False):
         if drive:
             add_space_drivers(rig, copy_rot, name, 'target_space')
             add_space_drivers(rig, copy_rot, name, 'owner_space')
+    # add the limit rotation if the settings ask for it...
     if limit:
         limit_rot = rig_pb.constraints.new('LIMIT_ROTATION')
         limit_rot.use_limit_x, limit_rot.use_limit_y, limit_rot.use_limit_z = limit['use']
         limit_rot.min_x, limit_rot.min_y, limit_rot.min_z = (math.radians(m) for m in limit['min'])
         limit_rot.max_x, limit_rot.max_y, limit_rot.max_z = (math.radians(m) for m in limit['max'])
         limit_rot.owner_space = limit['space']
+    # add the transform if the settings ask for it...
     if transform:
         trans_rot = rig_pb.constraints.new('TRANSFORM')
         trans_rot.target, trans_rot.subtarget = rig, transform['subtarget']
         trans_rot.map_from, trans_rot.map_to = 'ROTATION', 'ROTATION'
         rotation = [math.radians(-360), math.radians(360)]
         inverted = [math.radians(360), math.radians(-360)]
+        # map each axis in use...
         if transform['use'][0]:
             trans_rot.from_min_x_rot, trans_rot.from_max_x_rot = rotation
             trans_rot.to_min_x_rot, trans_rot.to_max_x_rot = inverted if transform['invert'][0] else rotation
@@ -598,6 +640,7 @@ def add_rotation_constraints(rig, name, copy, limit, transform, drive=False):
 
 def add_scale_constraints(rig, name, copy, limit):
     rig_pb = rig.pose.bones.get(name)
+    # add the copy scale if the settings ask for it...
     if copy:
         copy_sca = rig_pb.constraints.new('COPY_SCALE')
         copy_sca.target, copy_sca.subtarget = rig, copy['subtarget']
@@ -614,6 +657,7 @@ def add_scale_constraints(rig, name, copy, limit):
             axes = axes + "Z"
         end = " Scale" if axes else "Scale"
         copy_sca.name = copy['name'] if 'name' in copy else "Copy " + axes + end
+    # add the limit scale if the settings ask for it...
     if limit:
         limit_sca = rig_pb.constraints.new('LIMIT_SCALE')
         limit_sca.use_min_x, limit_sca.use_min_y, limit_sca.use_min_z = limit['use']
@@ -626,6 +670,7 @@ def add_scale_constraints(rig, name, copy, limit):
 
 def add_location_constraints(rig, name, copy, limit, drive=False):
     rig_pb = rig.pose.bones.get(name)
+    # add the copy location if the settings ask for it...
     if copy:
         copy_loc = rig_pb.constraints.new('COPY_LOCATION')
         copy_loc.target, copy_loc.subtarget = rig, copy['subtarget']
@@ -647,6 +692,7 @@ def add_location_constraints(rig, name, copy, limit, drive=False):
         if drive:
             add_space_drivers(rig, copy_loc, name, 'target_space')
             add_space_drivers(rig, copy_loc, name, 'owner_space')
+    # add the limit location if the settings ask for it...
     if limit:
         limit_loc = rig_pb.constraints.new('LIMIT_LOCATION')
         limit_loc.use_min_x, limit_loc.use_min_y, limit_loc.use_min_z = limit['use']
@@ -749,8 +795,7 @@ def set_bone_hierarchy(oriented, rig, name, shared):
             parent_pb = parent_pb.parent
 
 def get_shared_default(rig, name):
-    # false only when an existing rigging modules bone collection already claims this bone - the first module to touch a shared bone keeps edit/styling rights over it by default...
-    # reads membership off the bone itself, not the collections own bones list - the latter reads empty while the armature is in edit mode...
+    # false only if a modules collection already claims this bone, first module keeps the styling... (read off the bone, the collections own list is empty in edit mode)
     bone = rig.data.bones.get(name) if rig else None
     if not bone:
         return True
@@ -894,6 +939,7 @@ def set_bone_shape(rig, name, shape, axes, rigging, offset=0.3, base=0.3, first=
                 closest, _ = utilities.functions.get_closest_axis(axes[1], cardinals)
             if not closest == '-X':
                 closest, _ = utilities.functions.get_closest_axis(axes[2], cardinals)
+            # closest to -X, so the edited rotation gets flipped...
             if closest == '-X':
                 angles = Vector(shape.rotation)
                 edited = Euler(Vector((angles.x, -angles.y, -angles.z)), 'XYZ').to_matrix()
@@ -926,19 +972,22 @@ def get_bone_collection(rig, group, bone=""):
     return collection
 
 def copy_retargeting_settings(rig, added):
-    # carry retargeting settings over onto the rigs forward bones from whichever armature they were created from - a
-    # plain name match is enough to find them, no need to know the underlying forward-prefix mapping here...
+    # carry retargeting settings onto the forward bones from whichever armature made them... (a plain name match finds them)
     _, oriented, original = utilities.functions.get_armature_hierarchy(rig)
     oriented = oriented or original
     if not oriented:
         return
     for name in added:
         oriented_pb, rig_pb = oriented.pose.bones.get(name), rig.pose.bones.get(name)
+        # copy onto the rig bone without firing its update...
         if oriented_pb and rig_pb:
             rig_pb.mmt.updating = True
             rig_pb.mmt.rotation = oriented_pb.mmt.rotation
             rig_pb.mmt.translation = oriented_pb.mmt.translation
             rig_pb.mmt.mirror = oriented_pb.mmt.mirror
+            rig_pb.mmt.mapping.clear()
+            for mapping in oriented_pb.mmt.mapping:
+                rig_pb.mmt.mapping.add().name = mapping.name
             rig_pb.mmt.updating = False
 
 def set_bone_groups(rig, name, groups, module):
@@ -966,6 +1015,7 @@ def set_bone_groups(rig, name, groups, module):
     if module:
         # create it if it doesn't already exist...
         rigging = rig.data.collections_all.get(module)
+        # create the module collection if it doesn't exist...
         if not rigging:
             rigging = rig.data.collections.new(module, parent=modules)
             rigging['Group Type'] = module.split(" ")[0]  # caller resyncs once its whole build is done, not here...
@@ -975,6 +1025,7 @@ def set_bone_groups(rig, name, groups, module):
     for group in groups:
         # create it's category if it doesn't exist... (general and limited always exist)...
         category = get_bone_collection(rig, group.capitalize())
+        # create the group collection if it doesn't exist...
         if not category:
             category = rig.data.collections.new(group.capitalize())
             category['Group Type'] = group.capitalize()
@@ -986,6 +1037,8 @@ def set_bone_groups(rig, name, groups, module):
         rig.data.collections.move(index, len(rig.data.collections) - 1)
 
 def add_mirrored_module(rig, primary, name, settings):
+    # grab what we need before adding to the collection... (adding can invalidate the primary reference)
+    primary_name, primary_rigging = primary.module, primary.rigging
     # the mirrored copy never goes through mmt.add, so update its own list entry in place rather than duplicating it...
     index = next((i for i, m in enumerate(rig.data.mmt.rigging) if m.module == name), -1)
     if index >= 0:
@@ -993,37 +1046,35 @@ def add_mirrored_module(rig, primary, name, settings):
     else:
         item = rig.data.mmt.rigging.add()
     item.updating = True
-    item.module, item.rigging, item.is_mirrored = name, primary.rigging, True
+    item.module, item.rigging, item.is_mirrored = name, primary_rigging, True
     set_default_settings(item.settings, get_settings_snapshot(settings))
     item.updating = False
     # keep the pair adjacent instead of leaving a freshly added mirror stranded at the tail, left above right...
-    primary_index = next(i for i, m in enumerate(rig.data.mmt.rigging) if m.module == primary.module)
+    primary_index = next(i for i, m in enumerate(rig.data.mmt.rigging) if m.module == primary_name)
     mirror_index = next(i for i, m in enumerate(rig.data.mmt.rigging) if m.module == name)
-    _, side = utilities.functions.get_mirrored_name(primary.module)
+    _, side = utilities.functions.get_mirrored_name(primary_name)
     target_index = primary_index if side == 'LEFT' else primary_index + 1
     rig.data.mmt.rigging.move(mirror_index, target_index)
 
 def set_module_moved(rig, direction):
     # bone collection order was never used for anything else, so just reorder the list directly...
     index = rig.data.mmt.module
-    if not (0 <= index < len(rig.data.mmt.rigging)):
-        return
-    target = index + (-1 if direction == 'UP' else 1)
-    if target < 0 or target >= len(rig.data.mmt.rigging):
-        return
-    rig.data.mmt.rigging.move(index, target)
-    rig.data.mmt.module = target
+    if 0 <= index < len(rig.data.mmt.rigging):
+        target = index + (-1 if direction == 'UP' else 1)
+        # stay inside the list...
+        if 0 <= target < len(rig.data.mmt.rigging):
+            rig.data.mmt.rigging.move(index, target)
+            rig.data.mmt.module = target
 
 def get_space_cache(rig):
     # blender can quietly reset a surviving transforms drivers own space when edit bones elsewhere get deleted...
     cache = {}
-    if not rig.animation_data:
-        return cache
-    for fcurve in rig.animation_data.drivers:
-        for var_index, var in enumerate(fcurve.driver.variables):
-            if var.type == 'TRANSFORMS':
-                for target_index, target in enumerate(var.targets):
-                    cache[(fcurve.data_path, fcurve.array_index, var_index, target_index)] = target.transform_space
+    if rig.animation_data:
+        for fcurve in rig.animation_data.drivers:
+            for var_index, var in enumerate(fcurve.driver.variables):
+                if var.type == 'TRANSFORMS':
+                    for target_index, target in enumerate(var.targets):
+                        cache[(fcurve.data_path, fcurve.array_index, var_index, target_index)] = target.transform_space
     return cache
 
 def set_space_cache(rig, cache):
@@ -1045,6 +1096,7 @@ def remove_rigging_module(oriented, rig, module, remove_entry=True):
         # remove orphaned entries left behind by failed or interrupted builds...
         if remove_entry:
             index = next((i for i, item in enumerate(rig.data.mmt.rigging) if item.module == module), -1)
+            # drop the entry and keep the index in range...
             if index >= 0:
                 rig.data.mmt.rigging.remove(index)
                 rig.data.mmt.module = min(index, len(rig.data.mmt.rigging) - 1)
@@ -1063,6 +1115,7 @@ def remove_rigging_module(oriented, rig, module, remove_entry=True):
         if not pose_bone:
             continue
         for constraint in list(pose_bone.constraints):
+            # spline curves go with the module...
             if constraint.type == 'SPLINE_IK' and constraint.target:
                 curve, curve_data = constraint.target, constraint.target.data
                 bpy.data.objects.remove(curve, do_unlink=True)
@@ -1112,6 +1165,7 @@ def remove_rigging_module(oriented, rig, module, remove_entry=True):
     # drop this modules own list entry directly - no need to rescan every other module too, they're untouched...
     if remove_entry:
         index = next((i for i, m in enumerate(rig.data.mmt.rigging) if m.module == module), -1)
+        # drop the entry and keep the index in range...
         if index >= 0:
             rig.data.mmt.rigging.remove(index)
             rig.data.mmt.module = min(index, len(rig.data.mmt.rigging) - 1)
@@ -1214,11 +1268,13 @@ def set_mirrored_settings(settings, mirrored):
     for setting in settings.bl_rna.properties:
         # if the item is a pointer... (origin, end, root)...
         identifier = setting.identifier
+        # pointer items get copied over...
         if settings.bl_rna.properties[identifier].type == 'POINTER' and identifier != 'rna_type':
             item = getattr(settings, identifier)
             mirror = getattr(mirrored, identifier)
             # copy all of its not read only values into the mirrored item...
             for prop in item.bl_rna.properties:
+                # copy anything writable...
                 if not prop.is_readonly:
                     value = getattr(item, prop.identifier)
                     setattr(mirror, prop.identifier, value)
@@ -1236,6 +1292,7 @@ def set_mirrored_settings(settings, mirrored):
                 mirror = mirrors.add()
                 # copy all of its not read only values into the mirrored item...
                 for prop in item.bl_rna.properties:
+                    # copy anything writable...
                     if not prop.is_readonly:
                         value = getattr(item, prop.identifier)
                         setattr(mirror, prop.identifier, value)
@@ -1300,6 +1357,7 @@ def set_saved_defaults(rigging, snapshot):
     defaults['settings'] = {name: snapshot[name] for name in ('offset', 'position', 'count', 'influences', 'floor', 'inverse', 'axis', 'axes') if name in snapshot}
     prefs = utilities.functions.get_addon_preferences(bpy.context)
     entry = prefs.defaults.get(rigging)
+    # first time for this type, so add an entry...
     if not entry:
         entry = prefs.defaults.add()
         entry.name = rigging
@@ -1323,6 +1381,7 @@ def merge_saved_defaults(settings, saved):
                     value = tuple(math.radians(a) for a in value)
                 setattr(item, prop, value)
     for name, value in saved.get('settings', {}).items():
+        # axes are saved as a list of items...
         if name == 'axes' and isinstance(value, list):
             for item, saved_item in zip(settings.axes, value):
                 for prop, item_value in saved_item.items():
@@ -1349,15 +1408,18 @@ def update_module_rigging(self, context):
         return
     self.updating, rigging, added = True, self.rigging, None
     module_file = get_module_file(rigging)
+    # build it through the modules own invoke and execute...
     if module_file:
         invoke = getattr(module_file, 'invoke_' + rigging.lower() + '_module')
         execute = getattr(module_file, 'execute_' + rigging.lower() + '_module')
         success = invoke(context, self)
         pending = get_settings_snapshot(self.settings) if success else None
         added = execute(context, self) if success else None
+        # remember what worked and carry the retargeting settings over...
         if added is not None:
             set_saved_defaults(rigging, pending)
             copy_retargeting_settings(rig, added)
+    # success keeps the type, failure goes back to none...
     if added is not None:
         self.updating = False
         return
@@ -1387,7 +1449,108 @@ def get_module_file(rigging):
         module_file = None
     return module_file
 
-def set_module_restored(context, item, rigging, settings_data):
+def set_optional_suffix_cleared(oriented, suffices, name):
+    # optional role that tolerates an empty affix... (clear it if missing rather than blocking the whole paste)
+    entry = suffices.get(name)
+    if entry and entry.affix and not oriented.data.bones.get(entry.affix):
+        entry.affix, entry.required = "", False
+
+def get_portable_root_suffices(oriented, settings):
+    # root is essential, the rest are optional followers... (add_root_bones assumes they resolve, so missing ones get dropped not cleared)
+    suffices = settings.suffices
+    root_entry = suffices.get('root')
+    if not root_entry or not root_entry.affix or not oriented.data.bones.get(root_entry.affix):
+        return False
+    root_affix, root_unique, root_required = root_entry.affix, root_entry.unique, root_entry.required
+    followers = [(e.affix, e.unique, e.required) for e in suffices
+        if e.name != 'root' and e.affix and oriented.data.bones.get(e.affix)]
+    suffices.clear()
+    root = suffices.add()
+    root.name, root.affix, root.unique, root.required = 'root', root_affix, root_unique, root_required
+    for index, (affix, unique, required) in enumerate(followers):
+        follower = suffices.add()
+        follower.name = utilities.functions.get_ordinal_index(index + 1).lower()
+        follower.affix, follower.unique, follower.required = affix, unique, required
+    return True
+
+def get_portable_twist_suffices(oriented, settings):
+    # origin and ending are essential, target gets re-derived on invoke, chain entries stay only if they still resolve...
+    suffices = settings.suffices
+    origin_entry, ending_entry = suffices.get('origin'), suffices.get('ending')
+    if not origin_entry or not origin_entry.affix or not oriented.data.bones.get(origin_entry.affix):
+        return False
+    if not ending_entry or not ending_entry.affix or not oriented.data.bones.get(ending_entry.affix):
+        return False
+    origin_affix, ending_affix = origin_entry.affix, ending_entry.affix
+    chain = [(e.affix, e.unique, e.required) for e in suffices
+        if e.name not in ('origin', 'ending', 'target') and e.affix and oriented.data.bones.get(e.affix)]
+    if not chain:
+        return False
+    # rebuild the suffices in order...
+    target_affix = origin_affix if settings.inverse else ending_affix
+    suffices.clear()
+    origin = suffices.add()
+    origin.name, origin.affix, origin.unique, origin.required = 'origin', origin_affix, True, True
+    for index, (affix, unique, required) in enumerate(chain):
+        entry = suffices.add()
+        entry.name = utilities.functions.get_ordinal_index(index + 1).lower()
+        entry.affix, entry.unique, entry.required = affix, unique, required
+    ending = suffices.add()
+    ending.name, ending.affix, ending.unique, ending.required = 'ending', ending_affix, False, True
+    target = suffices.add()
+    target.name, target.affix, target.unique, target.required = 'target', target_affix, False, True
+    return True
+
+def get_portable_curl_suffices(oriented, settings):
+    # first and last saved entries set the span and are essential... (the rest renumber contiguously, with axes rebuilt in lockstep since they're keyed by ordinal)
+    suffices = list(settings.suffices)
+    if not suffices:
+        return False
+    # first and last chain entries have to exist...
+    origin_entry, chain_entries = suffices[0], suffices[1:]
+    if len(chain_entries) < 2:
+        return False
+    first_entry, last_entry = chain_entries[0], chain_entries[-1]
+    if not (first_entry.affix and oriented.data.bones.get(first_entry.affix)):
+        return False
+    if not (last_entry.affix and oriented.data.bones.get(last_entry.affix)):
+        return False
+    # keep whatever still resolves...
+    survivors = [first_entry] + [e for e in chain_entries[1:-1] if e.affix and oriented.data.bones.get(e.affix)] + [last_entry]
+    survivor_data = [(e.name, e.affix, e.unique, e.required) for e in survivors]
+    origin_affix = origin_entry.affix if origin_entry.affix and oriented.data.bones.get(origin_entry.affix) else ""
+    old_axes = {a.name: (a.x, a.y, a.z) for a in settings.axes}
+    # rebuild the suffices and axes with new ordinals...
+    settings.suffices.clear()
+    origin = settings.suffices.add()
+    origin.name, origin.affix, origin.unique, origin.required = 'origin', origin_affix, True, False
+    settings.axes.clear()
+    for index, (old_name, affix, unique, required) in enumerate(survivor_data):
+        new_name = utilities.functions.get_ordinal_index(index + 1).lower()
+        entry = settings.suffices.add()
+        entry.name, entry.affix, entry.unique, entry.required = new_name, affix, unique, required
+        axes_entry = settings.axes.add()
+        axes_entry.name = new_name
+        old_values = old_axes.get(old_name)
+        if old_values:
+            axes_entry.x, axes_entry.y, axes_entry.z = old_values
+    return True
+
+def get_settings_portable(oriented, rigging, settings):
+    # fit pasted settings to a compatible armature so missing optional bones don't block it... (false only if an essential role can't resolve)
+    portable = True
+    if rigging in ('OPPOSABLE', 'PLANTIGRADE', 'DIGITIGRADE'):
+        set_optional_suffix_cleared(oriented, settings.suffices, 'root')
+        set_optional_suffix_cleared(oriented, settings.suffices, 'origin')
+    elif rigging == 'ROOT':
+        portable = get_portable_root_suffices(oriented, settings)
+    elif rigging == 'TWIST':
+        portable = get_portable_twist_suffices(oriented, settings)
+    elif rigging == 'CURL':
+        portable = get_portable_curl_suffices(oriented, settings)
+    return portable
+
+def set_module_restored(context, item, rigging, settings_data, adapt=False):
     # rebuilds a module straight from previously cached settings, bypassing the selection based invoke defaults entirely...
     item.updating = True
     try:
@@ -1396,9 +1559,16 @@ def set_module_restored(context, item, rigging, settings_data):
         module_file = get_module_file(rigging)
         if not module_file:
             return False
+        if adapt:
+            # the paste may land on a different skeleton, so fit the settings before the builder runs...
+            _, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
+            oriented = oriented or original
+            if not oriented or not get_settings_portable(oriented, rigging, item.settings):
+                return False
         # keep restore transactional so mirrored settings callbacks cannot rebuild incomplete modules...
         execute = getattr(module_file, 'execute_' + rigging.lower() + '_module')
         added = execute(context, item)
+        # only copy after a successful build...
         if added is not None:
             rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
             if rig:
@@ -1411,9 +1581,9 @@ def set_refreshed_rigging(context, oriented, rig):
     # rebuild every primary rigging module from its current settings, caching plain data first... (removing blender collection entries invalidates their property groups)...
     cached = [(item.module, item.rigging, utilities.functions.get_serialized_settings(item.settings))
         for item in rig.data.mmt.rigging if item.rigging != 'NONE' and is_primary_module(item)]
-    # remember the full original list order so it can be restored after rebuilding, since add_mirrored_module re-appends a rebuilt primarys mirror at the tail instead of beside it, and dependent modules (eg spline taking root as its own origin) need to rebuild in that same order too...
+    # remember the list order to restore after rebuilding... (mirrors get re-added at the tail, and dependent modules need the same order)
     original_order = [item.module for item in rig.data.mmt.rigging if item.rigging != 'NONE']
-    # remove_entry=False here - removing list entries one at a time as we go would empty rig.data.mmt.rigging partway through and delete the whole rig object out from under us, so clear the list ourselves in one batch once everything is gone...
+    # remove_entry=False so the list can't empty part way and delete the rig... (the list gets cleared in one batch afterwards)
     for module_name, _, _ in reversed(cached):
         item = next((candidate for candidate in rig.data.mmt.rigging if candidate.module == module_name), None)
         if not item:
@@ -1442,6 +1612,7 @@ def update_module_settings(self, context):
         return
     if not isinstance(owner, bpy.types.Armature):
         return
+    # only react when this is the active module of the rig...
     rig, oriented, _ = utilities.functions.get_armature_hierarchy(context.object)
     if not rig or rig.data != owner:
         return
@@ -1457,10 +1628,12 @@ def update_module_settings(self, context):
     if item.mirrored_name and not counterpart:
         # discard stale mirror links left behind by failed or partial rebuilds...
         item.mirrored_name = ""
+    # mirroring got turned off, so remove the counterpart...
     if counterpart and not item.settings.mirror:
         remove_rigging_module(oriented, rig, counterpart.module, remove_entry=False)
         item.mirrored_name = ""
     elif counterpart:
+        # refresh the mirrored module from this one...
         counterpart.updating = True
         set_mirrored_settings(item.settings, counterpart.settings)
         remove_rigging_module(oriented, rig, counterpart.module, remove_entry=False)
@@ -1471,9 +1644,11 @@ def update_module_settings(self, context):
     remove_rigging_module(oriented, rig, item.module, remove_entry=False)
     added = None
     module_file = get_module_file(rigging)
+    # rebuild the module...
     if module_file:
         execute = getattr(module_file, 'execute_' + rigging.lower() + '_module')
         added = execute(context, item)
+        # remember what worked and carry the retargeting settings over...
         if added is not None:
             set_saved_defaults(rigging, get_settings_snapshot(item.settings))
             copy_retargeting_settings(rig, added)

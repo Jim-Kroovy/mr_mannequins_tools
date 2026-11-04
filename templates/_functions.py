@@ -50,6 +50,7 @@ def set_deduplicated_shapes(objects):
     # remove any duplicate that no bone points to any more...
     removed = set()
     for shape in duplicates:
+        # remove the shape if nothing else uses it...
         if is_valid_id(shape) and shape.users == 0:
             data = shape.data
             bpy.data.objects.remove(shape, do_unlink=True)
@@ -80,6 +81,7 @@ def set_deduplicated_materials(objects):
     # remove any duplicate that no mesh points to any more...
     removed = set()
     for material in duplicates:
+        # remove the material if nothing else uses it...
         if is_valid_id(material) and material.users == 0:
             bpy.data.materials.remove(material)
             removed.add(material)
@@ -106,13 +108,14 @@ def set_deduplicated_images(materials):
     # remove any duplicate that no material points to any more...
     removed = set()
     for image in duplicates:
+        # remove the image if nothing else uses it...
         if is_valid_id(image) and image.users == 0:
             bpy.data.images.remove(image)
             removed.add(image)
     return removed
 
 def set_deduplicated_assets(objects):
-    # dedupe images before their materials, since removing a duplicate material doesn't cascade-remove the images its node tree referenced, so collect them all while still reachable, then dedupe materials...
+    # dedupe images before materials, removing a material doesn't cascade to its images... (so collect them while still reachable)
     materials = {m for obj in objects if obj.type == 'MESH' for m in obj.data.materials if m}
     set_deduplicated_images(materials)
     set_deduplicated_materials(objects)
@@ -151,6 +154,7 @@ def load_saved_template(context, name, ignore_armatures, ignore_meshes, ignore_m
     # drop whatever categories were asked to be ignored...
     kept = []
     for obj in objects:
+        # ignored types get deleted from the load...
         if (obj.type == 'ARMATURE' and ignore_armatures) or (obj.type == 'MESH' and ignore_meshes):
             obj_type, data = obj.type, obj.data
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -174,6 +178,7 @@ def load_saved_template(context, name, ignore_armatures, ignore_meshes, ignore_m
     shapes -= set_deduplicated_shapes(kept)
     # any shape nothing points to any more, whether it lost its armature or got deduplicated away, can go...
     for shape in shapes:
+        # remove the shape if nothing else uses it...
         if is_valid_id(shape) and shape.users == 0:
             data = shape.data
             bpy.data.objects.remove(shape, do_unlink=True)

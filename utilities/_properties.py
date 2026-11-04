@@ -2,12 +2,12 @@ import bpy
 
 from bpy.props import (StringProperty, BoolVectorProperty, CollectionProperty, IntProperty)
 
-class MMT_PG_Defaults(bpy.types.PropertyGroup):
+class MMT_PG_UtilitiesDefaults(bpy.types.PropertyGroup):
     # name holds the rigging type identifier (eg. "OPPOSABLE"), json its last used naming/colors/shapes...
     json: StringProperty(default="")
 
-class MMT_AP_Preferences(bpy.types.AddonPreferences):
-    # this files own package is always "<root>.utilities" - stripping the trailing segment gives the addons real registered name, whether installed as a legacy addon ("mr_mannequins_tools") or as an extension ("bl_ext.<repo>.mr_mannequins_tools")...
+class MMT_AP_UtilitiesPreferences(bpy.types.AddonPreferences):
+    # this files package is always "<root>.utilities", stripping that gives the real addon name... (legacy or extension)
     bl_idname = __package__.rsplit('.', 1)[0]
     # custom shape items from file paths...
     shape_items = []
@@ -41,7 +41,7 @@ class MMT_AP_Preferences(bpy.types.AddonPreferences):
     debug_skip: BoolVectorProperty(size=1, default=(False,))
 
     # last used naming/colors/shapes settings per rigging type, keyed by type identifier...
-    defaults: CollectionProperty(type=MMT_PG_Defaults)
+    defaults: CollectionProperty(type=MMT_PG_UtilitiesDefaults)
 
     # last used import/export settings, serialized to json so the whole property tree doesn't need duplicating here...
     import_settings: StringProperty(default="")
@@ -55,6 +55,6 @@ class MMT_AP_Preferences(bpy.types.AddonPreferences):
     version: StringProperty(default="")
 
 
-class MMT_PG_Armature(bpy.types.PropertyGroup):
+class MMT_PG_UtilitiesArmature(bpy.types.PropertyGroup):
 
     module: IntProperty(name="Active Module")

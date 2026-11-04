@@ -8,22 +8,22 @@ from . import _properties as properties
 
 def register():
     # export asset properties... (must be registered in dependency order)...
-    register_class(properties.MMT_PG_ExportFBX)
-    register_class(properties.MMT_PG_Clean)
-    register_class(properties.MMT_PG_Meshes)
-    register_class(properties.MMT_PG_Action)
-    register_class(properties.MMT_PG_Export)
+    register_class(properties.MMT_PG_ExportingFBX)
+    register_class(properties.MMT_PG_ExportingCleanup)
+    register_class(properties.MMT_PG_ExportingMeshes)
+    register_class(properties.MMT_PG_ExportingAction)
+    register_class(properties.MMT_PG_ExportingSettings)
     # compatible FBX export...
-    register_class(operators.MMT_OT_Export)
+    register_class(operators.MMT_OT_ExportingFBX)
     bpy.types.TOPBAR_MT_file_export.append(operators.add_export_operator)
 
 def unregister():
     # compatible FBX export...
     bpy.types.TOPBAR_MT_file_export.remove(operators.add_export_operator)
-    unregister_class(operators.MMT_OT_Export)
+    unregister_class(operators.MMT_OT_ExportingFBX)
     # export asset properties...
-    unregister_class(properties.MMT_PG_Export)
-    unregister_class(properties.MMT_PG_Action)
-    unregister_class(properties.MMT_PG_Meshes)
-    unregister_class(properties.MMT_PG_Clean)
-    unregister_class(properties.MMT_PG_ExportFBX)
+    unregister_class(properties.MMT_PG_ExportingSettings)
+    unregister_class(properties.MMT_PG_ExportingAction)
+    unregister_class(properties.MMT_PG_ExportingMeshes)
+    unregister_class(properties.MMT_PG_ExportingCleanup)
+    unregister_class(properties.MMT_PG_ExportingFBX)

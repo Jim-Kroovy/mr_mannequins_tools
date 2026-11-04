@@ -9,7 +9,7 @@ from bpy_extras import anim_utils
 from .. import shaping
 
 def get_addon_preferences(context):
-    # this files own package is always "<root>.utilities" - stripping the trailing segment gives the addons real registered name, whether installed as a legacy addon ("mr_mannequins_tools") or as an extension ("bl_ext.<repo>.mr_mannequins_tools")...
+    # this files package is always "<root>.utilities", stripping that gives the real addon name... (legacy or extension)
     root = __package__.rsplit('.', 1)[0]
     return context.preferences.addons[root].preferences
 
@@ -56,6 +56,7 @@ def get_coincident_clusters(armature, threshold=0.0001):
             continue
         cluster = [name]
         for other in names[index + 1:]:
+            # cluster anything close enough...
             if other not in used and (positions[name] - positions[other]).length <= threshold:
                 cluster.append(other)
                 used.add(other)
@@ -234,10 +235,12 @@ def set_objects_unhidden(selection):
             stack, layer = [view.layer_collection], None
             while stack:
                 current = stack.pop()
+                # found its layer...
                 if current.collection == coll:
                     layer = current
                     break
                 stack.extend(current.children)
+            # make sure it's visible and included...
             if layer:
                 layer.hide_viewport = False
                 layer.exclude = False
@@ -308,7 +311,6 @@ def set_armature_transforms(armature, meshes, actions, location, rotation, scale
     for bone in armature.data.edit_bones:
         bone.use_connect = False
     for bone in armature.data.edit_bones:
-        
         # applied in the same order they compose in, scale first, then rotation, then location...
         if scale:
             bone.transform(bake_scale_matrix, scale=True, roll=False)
@@ -340,6 +342,7 @@ def set_armature_transforms(armature, meshes, actions, location, rotation, scale
         scaling = apply_matrix.to_scale().x
         for action in actions:
             for fc in get_action_fcurves(action):
+                # locations scale with the armature...
                 if fc.data_path.endswith('.location'):
                     for key in fc.keyframe_points:
                         key.co.y *= scaling
@@ -503,6 +506,7 @@ def get_armature_hierarchy(armature):
         return None, None, None
     oriented, original, rig = None, None, None
     kind = armature.get('Armature Type')
+    # work out the trio from whichever member this is...
     if kind == "Original":
         original = armature
         oriented = original.parent if original.parent and original.parent.get('Armature Type') == "Oriented" else None
@@ -514,6 +518,7 @@ def get_armature_hierarchy(armature):
     elif kind is None:
         # an untagged armature is the original input before an oriented sibling exists...
         original = armature
+    # fill in the rest from the oriented...
     if oriented:
         if not rig and oriented.parent and oriented.parent.get('Armature Type') == "Rigging":
             rig = oriented.parent
@@ -584,6 +589,17 @@ def set_stashed_action(armature, action):
     if slot:
         strip.action_slot = slot
 
+def remove_stashed_action(armature, action):
+    # removes every nla strip using this action and any track left empty... (call before removing the action or it leaves a dangling strip)
+    if not armature.animation_data:
+        return
+    for track in list(armature.animation_data.nla_tracks):
+        for strip in list(track.strips):
+            if strip.action == action:
+                track.strips.remove(strip)
+        if len(track.strips) == 0:
+            armature.animation_data.nla_tracks.remove(track)
+
 def get_copied_nla(armature):
     # keep every action in first-use order... (the nla settings refer back to this list by index)
     if armature.animation_data:
@@ -631,7 +647,7 @@ def set_copied_nla(armature, tracks, actions):
     data.action = None
     for track in list(data.nla_tracks):
         data.nla_tracks.remove(track)
-    # the first action is always the active action... (blender assigns a sensible default slot on its own when the action has just one - explicitly reassigning it here is what was crashing blender itself on repeated retargets, so leave it alone)...
+    # the first action is always the active action... (reassigning the default slot here crashed blender on repeat retargets, so leave it alone)
     if actions and actions[0]:
         data.action = actions[0]
     # now rebuild each nla track...
@@ -684,11 +700,13 @@ def get_shape_mesh(identifier):
         if module:
             # if the shape doesn't already exist...
             shape = bpy.data.objects.get(module.shape['name'])
+            # not loaded yet, so build the mesh from its data...
             if shape is None:
                 data = module.shape
                 mesh = bpy.data.meshes.new(module.shape['name'])
                 mesh.from_pydata(data['vertices'], data['edges'], data['faces'])
                 shape = bpy.data.objects.new(module.shape['name'], mesh)
+                # sharp edges are an attribute...
                 if data['sharps']:
                     attribute = shape.data.attributes.new('sharp_edge', 'BOOLEAN', 'EDGE')
                     for i, sharp in enumerate(data['sharps']):
@@ -700,23 +718,43 @@ def get_shape_mesh(identifier):
     return shape
 
 def set_shape_items(preferences):
-    directory, items = get_shapes_directory(), [('NONE', "None", "", 'NONE', 0)]
+    directory, cached = get_shapes_directory(), {i[0]: i for i in preferences.shape_items}
+    items = [cached.get('NONE', ('NONE', "None", "", 'NONE', 0))]
     if os.path.exists(directory):
-        # get all the .py files in the folder...
-        for filename in os.listdir(directory):
-            if filename.endswith(".py"):
-                name = filename[:-3]
+        # get all the .py files in the folder... (sorted so their enum numbers don't shuffle between calls)...
+        for filename in sorted((f for f in os.listdir(directory) if f.endswith(".py")), key=str.lower):
+            name = filename[:-3]
+            # reuse the cached item for unchanged files so blender keeps its strings referenced...
+            item = cached.get(name.upper())
+            if not item:
                 # as legible items for the enum...
-                item = (filename[:-3].upper(), name.replace("_", " ").title(), "", 'NONE', len(items))
-                items.append(item)
-        # set the shape enum item cache in preferences...
-        preferences.shape_items = items
+                item = (name.upper(), name.replace("_", " ").title(), "", 'NONE', len(items))
+            # files added/removed before this one only shift its index, so keep its cached strings...
+            elif item[4] != len(items):
+                item = (*item[:4], len(items))
+            items.append(item)
+    # update the shape enum item cache in place, only when files were actually added or removed...
+    if items != preferences.shape_items:
+        preferences.shape_items[:] = items
 
 def get_shape_items(self, context):
     # shared dynamic items callback, so every custom shape picker across the addon can reference this directly...
     prefs = get_addon_preferences(context)
     set_shape_items(prefs)
     return prefs.shape_items
+
+def get_available_shape(identifier):
+    # the identifier if its shape file still exists, otherwise None...
+    return identifier if any(i[0] == identifier for i in get_shape_items(None, bpy.context)) else None
+
+def get_shared_shape(armature, names):
+    # infers the shape picker identifier from the custom shape the named bones actually share... (None if mixed or unavailable)...
+    shapes, identifier = {armature.pose.bones[n].custom_shape for n in names if n in armature.pose.bones}, None
+    # all the same shape, so use it...
+    if len(shapes) == 1:
+        shape = shapes.pop()
+        identifier = get_available_shape(shape.name.split('.')[0].upper()) if shape else 'NONE'
+    return identifier
 
 def get_serialized_settings(settings):
     # flattens any property group tree into plain data, generic enough for import/export/rigging settings alike...
@@ -741,6 +779,7 @@ def set_deserialized_settings(settings, data):
         prop = settings.bl_rna.properties.get(identifier)
         if not prop:
             continue
+        # collections get rebuilt from the saved list...
         if prop.type == 'COLLECTION':
             collection = getattr(settings, identifier)
             collection.clear()

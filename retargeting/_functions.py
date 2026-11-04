@@ -11,14 +11,16 @@ from .. import rigging
 from .. import orientation
 
 def set_target_items(preferences, original, prefer_rig=True, include_oriented=False):
-    # cache the armature picker items, one entry per character at its highest available tier (or oriented/original only when prefer_rig is off, since posing never uses a rig) - none first to avoid an accidental selection. include_oriented also lists the active armatures own oriented sibling even when its rig is higher, eg. retargeting the actions oriented already carried down from original, onto the rig...
+    # cache the armature picker items, one per character at its highest tier... (none first so nothing gets picked by accident, include_oriented also lists the oriented sibling)
     armatures = []
     for o in bpy.data.objects:
+        # only count the top armature of each trio...
         if o.type == 'ARMATURE' and o != original:
             rig, oriented, orig = utilities.functions.get_armature_hierarchy(o)
             highest = (rig or oriented or orig) if prefer_rig else (oriented or orig)
             if o == highest:
                 armatures.append(o)
+    # also offer the oriented of the active armature...
     if include_oriented:
         _, active_oriented, _ = utilities.functions.get_armature_hierarchy(original)
         if active_oriented and active_oriented != original and active_oriented not in armatures:
@@ -62,6 +64,7 @@ def update_bone_retargeting(self, context):
         if self.mirror:
             mirrored_name, _ = utilities.functions.get_mirrored_name(pose_bone.name)
             counterpart = armature.pose.bones.get(mirrored_name) if mirrored_name else None
+            # mirror onto the counterpart without firing its update...
             if counterpart:
                 counterpart.mmt.updating = True
                 counterpart.mmt.rotation = self.rotation
@@ -75,16 +78,15 @@ def update_bone_retargeting(self, context):
 
 def update_bone_mapping(self, context):
     armature = self.id_data
-    if not (isinstance(armature, bpy.types.Object) and armature.type == 'ARMATURE'):
-        return
-    pose_bone = next((pb for pb in armature.pose.bones if any(mapping == self for mapping in pb.mmt.mapping)), None)
-    if not (pose_bone and not pose_bone.mmt.updating):
-        return
-    pose_bone.mmt.updating = True
-    try:
-        set_cascaded_retargeting(armature, pose_bone.name)
-    finally:
-        pose_bone.mmt.updating = False
+    if isinstance(armature, bpy.types.Object) and armature.type == 'ARMATURE':
+        pose_bone = next((pb for pb in armature.pose.bones if any(mapping == self for mapping in pb.mmt.mapping)), None)
+        # cascade once, the flag stops it coming back through here...
+        if pose_bone and not pose_bone.mmt.updating:
+            pose_bone.mmt.updating = True
+            try:
+                set_cascaded_retargeting(armature, pose_bone.name)
+            finally:
+                pose_bone.mmt.updating = False
 
 def get_descendant_bones(pose_bone):
     # every pose bone beneath this one in the hierarchy, recursively...
@@ -100,6 +102,7 @@ def update_copy_children(self, context):
         return
     self.updating = True
     try:
+        # pass the setting down the children...
         if self.copy_children:
             armature = self.id_data
             pose_bone = next((pb for pb in armature.pose.bones if pb.mmt == self), None) if isinstance(armature, bpy.types.Object) and armature.type == 'ARMATURE' else None
@@ -113,7 +116,7 @@ def update_copy_children(self, context):
         self.updating = False
 
 def get_mapped_name(pose_bone, names):
-    # the bones own name if it's already in there, otherwise the first mapping entry that is - checked on this bone and its same-named counterparts elsewhere in the original/oriented/rigging hierarchy, since mapping is only ever authored on whichever tier the user happened to be editing...
+    # the bones own name if it's in there, otherwise the first mapping entry that is... (checked across the trio, mapping is only authored on one of them)
     if pose_bone.name in names:
         return pose_bone.name
     tiers = [t for t in utilities.functions.get_armature_hierarchy(pose_bone.id_data) if t]
@@ -126,18 +129,19 @@ def get_mapped_name(pose_bone, names):
     return None
 
 def set_mapped_names(armature, target):
-    # rename incoming bones onto the targets own naming wherever a mapping resolves one, so plain exact-name matching everywhere else in retargeting just works... returns {old_name: new_name} for every rename actually made, so callers can carry the same translation onto anything else keyed by the old names (eg. action fcurves)...
+    # rename incoming bones onto the targets naming so exact matching just works... (returns {old: new} so callers can carry it onto fcurves)
     names = {b.name for b in armature.data.bones}
     renamed = {}
     for target_pb in target.pose.bones:
         mapped = get_mapped_name(target_pb, names)
+        # rename the mapped bone to match the target...
         if mapped and mapped != target_pb.name:
             armature.data.bones[mapped].name = target_pb.name
             renamed[mapped] = target_pb.name
     return renamed
 
 def get_mapped_names(armature, target):
-    # the same correspondence set_mapped_names would rename onto, without touching a single bone - {armature_name: target_name} for every one of the armatures own bones that a mapping (or an exact match) resolves against the target...
+    # the same correspondence as set_mapped_names without touching a bone... ({armature_name: target_name})
     names = {b.name for b in armature.data.bones}
     forward = {}
     for target_pb in target.pose.bones:
@@ -158,24 +162,18 @@ def get_ordered_names(armature, names):
     return ordered
 
 def get_forward_names(origin, orient, rig, target):
-    # maps the raw armatures own bone names onto their equivalent name on target (itself, or the rig), following the live Parent Transform constraint chain - so a rigging modules forward prefix, or a shared bones own unrelated name, both still resolve correctly. respects the hierarchy by anchoring on the oriented armature when there is one (its own names already match original 1:1, and it's only a single hop from the rig), only falling back to walking the original armature directly if there's no oriented armature to anchor on...
+    # maps armature bones onto their name on target, following live parent transforms... (anchors on oriented if there is one, otherwise walks the original)
     forward = {}
     anchor = orient or origin
-    if not anchor:
-        return forward
-    for pose_bone in anchor.pose.bones:
-        name = pose_bone.name
-        if target == anchor:
+    if anchor:
+        for pose_bone in anchor.pose.bones:
+            name = pose_bone.name
             forward[name] = name
-            continue
-        rig_name = name
-        if target == rig:
-            con = pose_bone.constraints.get("Parent Transform")
-            if con and con.target == rig:
-                rig_name = con.subtarget
-            forward[name] = rig_name
-        else:
-            forward[name] = name
+            # rigging bones point at their real bone through parent transform... (the anchor just maps onto itself)
+            if target != anchor and target == rig:
+                con = pose_bone.constraints.get("Parent Transform")
+                if con and con.target == rig:
+                    forward[name] = con.subtarget
     return forward
 
 def get_joint_direction(armature, from_pb, to_pbs):
@@ -193,6 +191,7 @@ def get_local_rotation(source_pb, armature_rotation, world_rotation):
     # bring a world-space rotation back out of the armatures own object rotation, and into this bones local pose space, relative to its already posed parent...
     world_out = armature_rotation.inverted() @ world_rotation
     parent_pb = source_pb.parent
+    # get the parents pose and the rest rotation relative to it...
     if parent_pb:
         parent_pose = parent_pb.matrix.to_quaternion()
         rest_relative = (parent_pb.bone.matrix_local.inverted() @ source_pb.bone.matrix_local).to_quaternion()
@@ -207,6 +206,7 @@ def set_bone_retargeted(source, target, name, forward):
     source_matrix = source.matrix_world.to_3x3() @ source_pb.matrix.to_3x3()
     source_children = [c for c in source_pb.children if c.name in forward]
     target_direction = source_direction = None
+    # aim at the primary child when there is one, otherwise all of them...
     if source_children:
         primary = utilities.functions.get_primary_child(source_children)
         aim_children = [primary] if primary else source_children
@@ -218,6 +218,7 @@ def set_bone_retargeted(source, target, name, forward):
         # fall back to each bones inverted closest parent axis (rolls differ)...
         source_to_parent = source_pb.parent.head - source_pb.head
         target_to_parent = target_pb.parent.head - target_pb.head
+        # compare the closest axes to the parent on both sides...
         if source_to_parent.length > 1e-5 and target_to_parent.length > 1e-5:
             source_axes = rigging.functions.get_bone_axes(source_pb, ['+X', '-X', '+Y', '-Y', '+Z', '-Z'])
             target_axes = rigging.functions.get_bone_axes(target_pb, ['+X', '-X', '+Y', '-Y', '+Z', '-Z'])
@@ -225,6 +226,7 @@ def set_bone_retargeted(source, target, name, forward):
             target_closest = utilities.functions.get_closest_vector(target_to_parent.normalized() * -1, target_axes.values())
             source_direction = (source.matrix_world.to_3x3() @ source_closest).normalized()
             target_direction = (target.matrix_world.to_3x3() @ target_closest).normalized()
+    # swing the source onto the target direction...
     if target_direction and source_direction:
         swing = source_direction.rotation_difference(target_direction)
         target_world = (swing.to_matrix() @ source_matrix).to_quaternion()
@@ -251,6 +253,7 @@ def set_bone_twisted(source, target, name, forward):
     closest = utilities.functions.get_closest_vector(posed_z, target_directions)
     # only a pure roll around the bones own (already fixed) aim direction is actually achievable, so project the closest target axis onto the plane perpendicular to it first...
     desired_z = closest - (closest.dot(posed_y) * posed_y)
+    # twist to line up the z axis...
     if desired_z.length >= 0.0001:
         twist = posed_z.rotation_difference(desired_z.normalized())
         source_matrix = source.matrix_world.to_3x3() @ source_pb.matrix.to_3x3()
@@ -295,6 +298,7 @@ def set_anchored_bones(armature, meshes):
     for cluster in utilities.functions.get_coincident_clusters(armature):
         anchors = [n for n in cluster if n in weighted]
         followers = [n for n in cluster if n not in weighted]
+        # one anchor, so the followers get placed relative to it...
         if len(anchors) == 1 and followers:
             anchor_pb = armature.pose.bones[anchors[0]]
             anchor_rest = anchor_pb.bone.matrix_local
@@ -317,6 +321,7 @@ def set_retargeted_rigging(original, target, max_length, rename=True):
                 cached.append((item.rigging, utilities.functions.get_serialized_settings(item.settings)))
     # remove constraints driving the original before rebuilding its rigs...
     orientation_functions.clear_parent_constraints(working_source)
+    # remove the old rigging armature and its data...
     if rig:
         data = rig.data
         bpy.data.objects.remove(rig, do_unlink=True)
@@ -337,8 +342,10 @@ def set_retargeted_rigging(original, target, max_length, rename=True):
         set_copied_retargeting(target, working, name)
     # rebuild the oriented armature only if one existed...
     new_oriented = None
+    # only rebuild what the original already had...
     if had_oriented:
         new_oriented, working = orientation_functions.add_oriented_armature(working, max_length)
+        # put the cached modules back on a new rigging armature...
         if cached:
             new_rig = rigging.functions.add_rigging_armature(new_oriented)
             for module_rigging, settings_data in cached:
@@ -352,6 +359,7 @@ def get_graph_override(context):
     # borrow a safe area for the graph editor (changing topbar or statusbar can crash blender)...
     candidates = [a for a in context.window.screen.areas if a.type not in {'TOPBAR', 'STATUSBAR', 'PREFERENCES', 'FILE_BROWSER'}]
     area = next((a for a in candidates if a.type in {'GRAPH_EDITOR', 'DOPESHEET_EDITOR'}), candidates[0] if candidates else None)
+    # no area, nothing to override...
     if not area:
         yield None
         return
@@ -385,6 +393,7 @@ def get_local_deviations(fcurve):
     count = len(points)
     scored = []
     for index, (frame, value) in enumerate(points):
+        # first and last points always survive...
         if index == 0 or index == count - 1:
             scored.append((frame, math.inf))
             continue
@@ -442,7 +451,9 @@ def set_cleaned_action(context, armature, action, decimate, margin, spacing):
     original_active_object = context.view_layer.objects.active
     original_selection = [pb.select for pb in armature.pose.bones]
     original_active_bone = armature.data.bones.active
+    original_selected = armature.select_get()
     context.view_layer.objects.active = armature
+    armature.select_set(True)
     armature.animation_data.action = action
     for pb in armature.pose.bones:
         pb.select = True
@@ -452,6 +463,7 @@ def set_cleaned_action(context, armature, action, decimate, margin, spacing):
         fcurve.select = True
         fcurve.hide = False
     with get_graph_override(context) as area:
+        # needs a graph editor for either of these...
         if area:
             if decimate:
                 set_decimated_fcurves(context, margin)
@@ -461,6 +473,7 @@ def set_cleaned_action(context, armature, action, decimate, margin, spacing):
         pb.select = selected
     armature.data.bones.active = original_active_bone
     armature.animation_data.action = original_action
+    armature.select_set(original_selected)
     context.view_layer.objects.active = original_active_object
 
 def get_module_names(rig, module, prefix_names):
@@ -485,6 +498,7 @@ def get_bone_channels(action):
     # group curves by bone, property and array index... (so we can evaluate without scene updates)
     channels, bones = {'location', 'rotation_quaternion', 'rotation_euler', 'scale'}, {}
     for fc in utilities.functions.get_action_fcurves(action):
+        # bone fcurves have the name in quotes...
         if '"' in fc.data_path:
             name = fc.data_path.partition('"')[2].split('"')[0]
             prop = fc.data_path.rpartition('.')[2]
@@ -501,6 +515,7 @@ def get_evaluated_basis(pose_bone, channels, frame):
     scale = Vector((1.0, 1.0, 1.0))
     for index, fc in props.get('scale', {}).items():
         scale[index] = fc.evaluate(frame)
+    # quaternion channels start from identity...
     if 'rotation_quaternion' in props:
         values = [1.0, 0.0, 0.0, 0.0]
         for index, fc in props['rotation_quaternion'].items():
@@ -521,12 +536,14 @@ def get_evaluated_matrix(pose_bone, channels, frame, cache):
     if pose_bone.name in cache:
         return cache[pose_bone.name]
     basis = get_evaluated_basis(pose_bone, channels, frame)
+    # walk up the parents to get armature space...
     if pose_bone.parent:
         parent_matrix = get_evaluated_matrix(pose_bone.parent, channels, frame, cache)
         matrix = parent_matrix @ pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local @ basis
     else:
         matrix = pose_bone.bone.matrix_local @ basis
     root = pose_bone.constraints.get("Root Transform")
+    # blend in the root child of...
     if root and root.influence > 0.0:
         root_pb = root.target.pose.bones.get(root.subtarget)
         root_matrix = get_evaluated_matrix(root_pb, channels, frame, cache)
@@ -547,9 +564,7 @@ def get_bone_translation(bone):
     return bone.matrix_local.to_translation()
 
 def get_bone_rotations(source, target, name, forward=None):
-    # Convert animation bases exactly between the paired bones armature-space
-    # rests.  Conjugating by this fixed difference keeps identity at identity
-    # while expressing every animated delta in the targets own rest axes.
+    # convert bases exactly between the paired armature space rests... (conjugating keeps identity at identity, deltas land in the targets rest axes)
     forward = forward or {}
     from_bone, to_bone = source.data.bones.get(name), target.data.bones.get(forward.get(name, name))
     if not (from_bone and to_bone):
@@ -571,11 +586,11 @@ def get_retargeted_rotation(mode, swing, correction, animated):
     return swing @ animated @ correction
 
 def get_retargeted_translation(mode, swing, source_translation, target_translation, animated):
-    # mirrors Unreals own per-bone translation retargeting modes - bring both the animated and the source rest translation into the targets own local axes first, using the same swing rotation already solved for this bones rotation retargeting...
+    # mirrors unreals translation retarget modes... (both translations go into the targets local axes using the same swing as the rotation)
     animated = swing @ animated
     source_translation = swing @ source_translation
     if mode == 'SKELETON':
-        # no extra offset on top of rest, mirrors get_retargeted_rotation's own identity return - target_translation is already baked into the hierarchy via bone.matrix_local in get_evaluated_matrix, so returning it here doubled it...
+        # no extra offset on top of rest... (target_translation is already in bone.matrix_local, returning it here doubled it)
         return Vector((0.0, 0.0, 0.0))
     length = source_translation.length
     if mode == 'SCALED':
@@ -612,9 +627,11 @@ def set_constraints_muted(rig, shared, children, value):
 def get_rigging_modules(rig, action, shared):
     frames, modules, channels = {}, [], get_bone_channels(action)
     for module in rig.data.mmt.rigging:
+        # only modules with ik controls can snap...
         if module.rigging in {'OPPOSABLE', 'PLANTIGRADE', 'DIGITIGRADE', 'SCALAR', 'SPLINE'}:
             module_file = rigging.functions.get_module_file(module.rigging)
             snap = getattr(module_file, 'set_snapped_kinematics', None)
+            # collect the frames keyed on the bones of this module...
             if snap:
                 collection = rig.data.collections_all.get(module.module)
                 names = {b.name for b in collection.bones} & shared if collection else set()
@@ -627,6 +644,7 @@ def get_rigging_modules(rig, action, shared):
 def set_bones_cleared(context, rig, names):
     for name in names:
         pose_bone = rig.pose.bones.get(name)
+        # clear the transforms back to rest...
         if pose_bone:
             pose_bone.location = (0.0, 0.0, 0.0)
             pose_bone.rotation_quaternion = Quaternion()
@@ -652,6 +670,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
     for module in rig.data.mmt.rigging:
         if module.rigging not in {'OPPOSABLE', 'PLANTIGRADE', 'DIGITIGRADE', 'SCALAR'}:
             continue
+        # get the bones of this module... (skip it if any are missing)
         suffices, prefices = module.settings.suffices, module.settings.prefices
         chain = [s.name for s in suffices if s.name not in {'origin', 'ending', 'root', 'pivot'}]
         if not chain:
@@ -680,6 +699,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
         pole_axis_name, _ = utilities.functions.get_closest_axis(rest_secondary, rest_axes)
         # get_shortest_roll always targets z, so the matched rest axis gives a fixed per-bone secondary sign, applied once up front...
         vector_z_sign = 1.0 if pole_axis_name == '+Z' else -1.0
+        # then key the controls on every frame...
         for frame in frames:
             cache = {}
             matrices = get_evaluated_matrices(forwards, channels, frame, cache)
@@ -689,6 +709,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
             # build the cardinal-axis override from this frames own matrix, not the live (unscrubbed) bone...
             axis_setting = module.settings.axis
             override = None
+            # a forced axis gets read off the first bones axes...
             if axis_setting != 'AUTO':
                 first_axes = matrices[0].to_3x3()
                 cardinal = {'+X': first_axes.col[0], '-X': -first_axes.col[0],
@@ -710,6 +731,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
                 # a genuine hyperextension flips secondary correctly, but the pole should hold its side regardless, so negate back onto the tracked side when they disagree...
                 elif dominant.dot(tracked_secondary) < 0.0:
                     override = -dominant
+            # get the chain normals and its center for this frame...
             primary, secondary, _, length = rigging.functions.get_chain_normals(points, override=override)
             center = points[0] + (primary * (length * module.settings.position))
 
@@ -728,6 +750,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
             rigging.functions.set_snapped_pole(pole, position, vector_matrix, get_matrix)
             set_bone_keyed(pole, frame)
 
+            # snap the parent control too...
             if parent_pb and control_pb:
                 control_x, parent_local = rigging.functions.get_snapped_parent(parent_pb, ball_pb, forwards[-1], get_matrix, step_height)
                 control_pb.rotation_euler.x = control_x
@@ -739,6 +762,7 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
     # spline still needs its own iterative, live-evaluated snap, with the same frame-scrubbing as above...
     spline_frames, all_modules = get_rigging_modules(rig, retarget, shared)
     spline_modules = [entry for entry in all_modules if entry[0].rigging == 'SPLINE']
+    # spline stays live, so it bakes through the view layer...
     if spline_modules:
         context.view_layer.objects.active = rig
         keyframes = sorted(set().union(*(spline_frames[module.module] for module, _, _, _ in spline_modules)))
@@ -748,9 +772,11 @@ def set_retargeting_rigging(context, original, rig, retarget, step_height=0.1):
             for module, snap, direct, controls in spline_modules:
                 if frame in spline_frames[module.module] and snap(context, module, clear=False):
                     for control in controls:
+                        # keep the quaternion from flipping between keys...
                         if control.rotation_mode == 'QUATERNION':
                             rotation = control.rotation_quaternion.copy()
                             previous = rotations.get(control.name)
+                            # flip onto the same side as the last key...
                             if previous is not None and rotation.dot(previous) < 0.0:
                                 rotation.negate()
                                 control.rotation_quaternion = rotation
@@ -783,16 +809,18 @@ def set_retargeted_action(context, action, source, target, step_height=0.1, only
         # get the targets armatures and redirect to the highest priority one...
         rig, orient, origin = utilities.functions.get_armature_hierarchy(target)
         target = rig or orient or origin
-        # map the raw armatures own bone names onto whatever target actually is - a rigs forward bones may carry a user prefix, or be an unrelated shared bone name entirely. respects the hierarchy: anchored on oriented when there is one, original otherwise, or straight identity as a last resort...
+        # map armature bones onto whatever target is, a rig may have a prefix or a shared name... (oriented first, then original, then identity)
         anchor = orient or origin or target
-        # rename onto a disposable duplicate rather than source itself, so a live/shared source armature never gets permanently renamed just for this - the action gets duplicated and its fcurve paths carried onto the same renames, so the duplicates keys line up with its own new bone names (source and its action are otherwise never touched)...
+        # rename a disposable duplicate so a live source never gets renamed... (the action gets duplicated with its paths too)
         duplicate, duplicate_action, action_name = None, None, action.name
+        # work on a renamed duplicate so the source stays untouched...
         if rename:
             data = source.data.copy()
             duplicate = bpy.data.objects.new(source.name + "_MAPPED", data)
             bpy.context.scene.collection.objects.link(duplicate)
             duplicate.matrix_world = source.matrix_world.copy()
             renamed = set_mapped_names(duplicate, anchor)
+            # the duplicate action needs the new names too...
             if renamed:
                 duplicate_action = action.copy()
                 for fc in utilities.functions.get_action_fcurves(duplicate_action):
@@ -817,41 +845,45 @@ def set_retargeted_action(context, action, source, target, step_height=0.1, only
             if names and frames:
                 # get the names in hierarchic order... (walked off the anchor, since its topology is what the forward mapping is based on)
                 ordered = get_ordered_names(anchor, names)
-                # Every mapped pair uses the same exact rest-space basis conversion;
-                # skeleton proportions are handled independently by translation mode.
+                # every mapped pair uses the same rest space conversion... (proportions are down to translation mode)
                 rotations = {name: get_bone_rotations(source, target, name, forward) for name in names}
                 retarget = bpy.data.actions.new(name=action_name + "_Retargeted")
                 if not target.animation_data:
                     target.animation_data_create()
                 active = target.animation_data.action
                 target.animation_data.action = retarget
-                for name in ordered:
-                    target_pb = target.pose.bones[forward[name]]
-                    source_pb = source.pose.bones[name]
-                    if rotations[name] and (not only_selected or target_pb.select):
-                        swing, correction, source_translation, target_translation = rotations[name]
-                        props = channels.get(name, {})
-                        # key transforms together at this bones own source times...
-                        frames = sorted({kp.co.x for curves in props.values() for fc in curves.values() for kp in fc.keyframe_points})
-                        target_pb.rotation_mode = 'QUATERNION'
-                        target_pb.rotation_quaternion = get_retargeted_rotation(target_pb.mmt.rotation, swing, correction, Quaternion())
-                        target_pb.location = Vector((0.0, 0.0, 0.0))
-                        for frame in frames:
-                            basis = get_evaluated_basis(source_pb, channels, frame)
-                            target_pb.rotation_quaternion = get_retargeted_rotation(target_pb.mmt.rotation, swing, correction, basis.to_quaternion())
-                            # root used to get a hand rolled world-space shortcut here, skipping swings axis conversion between the two rest conventions entirely - it needs the same treatment as every other bone, same as its rotation just above...
-                            target_pb.location = get_retargeted_translation(target_pb.mmt.translation, swing, source_translation, target_translation, basis.to_translation())
-                            set_bone_keyed(target_pb, frame)
-                target.animation_data.action = active
-                if rig:
-                    retarget = set_retargeting_rigging(context, source, rig, retarget, step_height)
-                return retarget
+                try:
+                    for name in ordered:
+                        target_pb = target.pose.bones[forward[name]]
+                        source_pb = source.pose.bones[name]
+                        # only mapped bones, and only selected ones if asked...
+                        if rotations[name] and (not only_selected or target_pb.select):
+                            swing, correction, source_translation, target_translation = rotations[name]
+                            props = channels.get(name, {})
+                            # key transforms together at this bones own source times...
+                            frames = sorted({kp.co.x for curves in props.values() for fc in curves.values() for kp in fc.keyframe_points})
+                            target_pb.rotation_mode = 'QUATERNION'
+                            target_pb.rotation_quaternion = get_retargeted_rotation(target_pb.mmt.rotation, swing, correction, Quaternion())
+                            target_pb.location = Vector((0.0, 0.0, 0.0))
+                            for frame in frames:
+                                basis = get_evaluated_basis(source_pb, channels, frame)
+                                target_pb.rotation_quaternion = get_retargeted_rotation(target_pb.mmt.rotation, swing, correction, basis.to_quaternion())
+                                # root needs the same swing conversion as every other bone, not a world space shortcut...
+                                target_pb.location = get_retargeted_translation(target_pb.mmt.translation, swing, source_translation, target_translation, basis.to_translation())
+                                set_bone_keyed(target_pb, frame)
+                    if rig:
+                        retarget = set_retargeting_rigging(context, source, rig, retarget, step_height)
+                    return retarget
+                finally:
+                    # the rigging bake leaves its own action assigned, so put back what was active... (callers decide the final state)
+                    target.animation_data.action = active
 
             return None
         finally:
             utilities.functions.set_restored_transform(source, stored_source)
             utilities.functions.set_restored_transform(target, stored_target)
             context.view_layer.update()
+            # clean up the temporary duplicate...
             if duplicate:
                 data = duplicate.data
                 bpy.data.objects.remove(duplicate, do_unlink=True)
@@ -861,6 +893,10 @@ def set_retargeted_action(context, action, source, target, step_height=0.1, only
 
     return None
 
+def set_pose_reset(destination):
+    # clearing the active action alone leaves bones frozen at the last frame... (used once no result stays active on the receiver)
+    rigging.functions.set_bones_reset(*destination.pose.bones)
+
 def get_bone_rest(armature, name):
     # a bones own rest orientation relative to its parent, undoing the parents own armature-space rest first...
     bone = armature.data.bones[name]
@@ -869,22 +905,25 @@ def get_bone_rest(armature, name):
     return bone.matrix_local.to_quaternion()
 
 def set_corrected_actions(armature, corrections):
-    # a rest orientation change invalidates any keyed rotation/translation, so re-key every frame through the same correction - kept separate from cross-armature retargeting since this never changes bones/armature, only rest...
+    # a rest change invalidates keyed rotation and translation, so rekey every frame through the correction... (never changes bones or armature, only rest)
     if armature.animation_data:
         _, actions = utilities.functions.get_copied_nla(armature)
         active = armature.animation_data.action
         try:
             for action in actions:
+                # only armatures with an action have keys to correct...
                 if action:
                     armature.animation_data.action = action
                     channels = get_bone_channels(action)
                     for name, correction in corrections.items():
                         pose_bone = armature.pose.bones.get(name)
                         props = channels.get(name, {})
+                        # only bones with animated channels get corrected...
                         if pose_bone and props:
                             frames = sorted({kp.co.x for curves in props.values() for fc in curves.values() for kp in fc.keyframe_points})
                             for frame in frames:
                                 basis = get_evaluated_basis(pose_bone, channels, frame)
+                                # write the correction back into whichever rotation channel is keyed...
                                 if 'rotation_quaternion' in props:
                                     pose_bone.rotation_mode = 'QUATERNION'
                                     pose_bone.rotation_quaternion = correction @ basis.to_quaternion()
@@ -892,6 +931,7 @@ def set_corrected_actions(armature, corrections):
                                 elif 'rotation_euler' in props:
                                     pose_bone.rotation_euler = (correction @ basis.to_quaternion()).to_euler(pose_bone.rotation_mode)
                                     pose_bone.keyframe_insert('rotation_euler', frame=frame)
+                                # location gets the same correction...
                                 if 'location' in props:
                                     pose_bone.location = correction @ basis.to_translation()
                                     pose_bone.keyframe_insert('location', frame=frame)
@@ -905,7 +945,7 @@ def set_retargeted_meshes(armature, target, max_length=None, rename=True):
     # translate the incoming bones onto the targets own naming before anything else touches them...
     if rename:
         set_mapped_names(armature, target)
-    # save every bones own rest orientation before anything bakes over it, so the difference can carry every stashed action through afterwards - the pose itself is assumed to already be set (Set Retarget Pose, plus any manual cleanup), this only ever bakes whatever is currently there...
+    # save every rest orientation before anything bakes over it, so the difference can carry the stash through... (bakes whatever pose is there now)
     old_rests = {pb.name: get_bone_rest(armature, pb.name) for pb in armature.pose.bones}
     # convert the originals sockets to skeletal meshes before retargeting (include hidden meshes)...
     weighted, attached = utilities.functions.get_armature_meshes(armature, bpy.context.scene.objects)
@@ -947,7 +987,7 @@ def set_retargeted_meshes(armature, target, max_length=None, rename=True):
     return result
 
 def get_missing_names(original_eb, source, forward):
-    # walks the source chain from this bones mapped parent down to its own mapped counterpart, collecting any bones in between that no original bone already claims - these are the gaps enforce_hierarchy pads with duplicates...
+    # walk the source chain from the mapped parent down to this bone, collecting bones no original claims... (the gaps enforce_hierarchy pads)
     parent_eb = original_eb.parent
     if not parent_eb or parent_eb.name not in forward:
         return []
@@ -967,7 +1007,7 @@ def get_missing_names(original_eb, source, forward):
     return missing
 
 def set_padded_bones(original, source, forward):
-    # enforce_hierarchy - splice a duplicate bone in for every source bone a shorter original chain skips over, so both skeletons keep the same joint count - each injected bones head sits the same fraction along the real parent-donor gap as its counterpart sits along the targets chain, direction/roll come from the target too like every other mapped bone...
+    # enforce_hierarchy, duplicate every source bone a shorter original chain skips so joint counts match... (heads sit at the same fraction, direction and roll from the target)
     padding = {}
     for name in list(forward):
         original_eb = original.data.edit_bones.get(name)
@@ -985,6 +1025,7 @@ def set_padded_bones(original, source, forward):
         positions = [real_start.lerp(real_end, f) for f in fractions]
         for i, missing_name in enumerate(missing):
             new_eb = original.data.edit_bones.get(missing_name)
+            # the bone is missing, so add it from the source...
             if not new_eb:
                 new_eb = original.data.edit_bones.new(missing_name)
                 new_eb.use_connect = False
@@ -999,7 +1040,7 @@ def set_padded_bones(original, source, forward):
     return padding
 
 def get_closest_segment(point, points):
-    # which segment of a polyline a point sits closest to, how far along it (0 at points[i], 1 at points[i + 1], clamped so a point beyond either end pins to that ends bone rather than extrapolating), and how far away it actually is...
+    # which segment a point sits closest to, how far along it and how far away... (clamped so it pins to the end bones instead of extrapolating)
     best_distance, best_index, best_fraction = None, 0, 0.0
     for i in range(len(points) - 1):
         segment = points[i + 1] - points[i]
@@ -1012,7 +1053,7 @@ def get_closest_segment(point, points):
     return best_index, best_fraction, best_distance
 
 def set_padded_source(mesh, to_local, source_name, chains):
-    # redistributes one vertex groups existing weight along whichever candidate chain each weighted vertex actually sits closest to, blending between whichever two bones its closest point falls between - a donor only has its own chain, but a shared parent gets one candidate per sibling so it cant bleed onto a neighbour...
+    # share one groups weight along whichever chain each vertex sits closest to... (a shared parent gets a candidate per sibling so it can't bleed onto neighbours)
     source_group = mesh.vertex_groups.get(source_name)
     if not source_group:
         return
@@ -1020,6 +1061,7 @@ def set_padded_source(mesh, to_local, source_name, chains):
         weight = next((g.weight for g in vertex.groups if g.group == source_group.index), 0.0)
         if weight <= 0.0:
             continue
+        # find the chain this vertex sits closest to...
         point = to_local @ vertex.co
         best = None
         for names, points in chains:
@@ -1027,6 +1069,7 @@ def set_padded_source(mesh, to_local, source_name, chains):
             if best is None or distance < best[3]:
                 best = (names, index, fraction, distance)
         names, index, fraction, _ = best
+        # split the weight between the two bones it sits between...
         start_name, end_name = names[index], names[index + 1]
         start_weight, end_weight = weight * (1.0 - fraction), weight * fraction
         remaining = 0.0
@@ -1039,7 +1082,7 @@ def set_padded_source(mesh, to_local, source_name, chains):
         source_group.add([vertex.index], remaining, 'REPLACE')
 
 def set_padded_weights(original, meshes, padding):
-    # method 1 - redistribute the parent and donor bones existing vertex weight across the padded chain(s) between them, letting a shared parent (eg. several metacarpals off one hand) pick whichever sibling chain each vertex actually sits closest to...
+    # method 1, redistribute parent and donor weight across the padded chains... (a shared parent picks the closest sibling chain per vertex)
     chains_by_parent, donor_chains = {}, []
     for donor_name, injected_names in padding.items():
         donor_bone = original.data.bones.get(donor_name)
@@ -1059,13 +1102,10 @@ def set_padded_weights(original, meshes, padding):
             set_padded_source(mesh, to_local, donor_name, [(names, points)])
 
 def set_rest_rebased_action(action, source, target, original_rests, applied_rests, padding=None):
-    # Carry an action through a rest-pose replacement. This is deliberately not
-    # ordinary retargeting: identity in the old rest must not become identity in
-    # the new rest, because the applied pose has already been baked into the
-    # meshes. Preserve the old originals deformation after factoring that baked
-    # pose out, then solve the matching basis on the rebuilt oriented hierarchy.
+    # carry an action through a rest pose replacement, not ordinary retargeting... (the applied pose is baked into the meshes, so identity must not stay identity)
     if not action:
         return None
+    # needs shared bones and keys to do anything...
     channels = get_bone_channels(action)
     frames = sorted({kp.co.x for props in channels.values() for curves in props.values()
         for fc in curves.values() for kp in fc.keyframe_points})
@@ -1074,10 +1114,12 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
     if not names or not frames:
         return None
     padding = padding or {}
+    # injected bones get keyed along with the mapped ones...
     injected = {injected_name: donor_name for donor_name, injected_names in padding.items()
         for injected_name in injected_names if injected_name in target.pose.bones}
     keyed = names | set(injected)
     rebased = bpy.data.actions.new(name=action.name + "_Rebased")
+    # key into a fresh action...
     if not target.animation_data:
         target.animation_data_create()
     active = target.animation_data.action
@@ -1087,15 +1129,16 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
     def get_desired_matrix(pose_bone, frame, source_cache, desired_cache):
         if pose_bone.name in desired_cache:
             return desired_cache[pose_bone.name]
+        # mapped bones read straight from the source...
         if pose_bone.name in names:
             source_pb = source.pose.bones[pose_bone.name]
             source_matrix = get_evaluated_matrix(source_pb, channels, frame, source_cache)
             source_rest = source_pb.bone.matrix_local
-            # old oriented pose -> old original pose -> remove the pose baked
-            # during Apply -> express on the new oriented rest...
+            # old oriented pose -> old original pose -> remove the pose baked during apply -> new oriented rest...
             matrix = (source_matrix @ source_rest.inverted() @ original_rests[pose_bone.name]
                 @ applied_rests[pose_bone.name].inverted() @ pose_bone.bone.matrix_local)
         elif pose_bone.parent:
+            # otherwise inherit the rest through the parent...
             parent_matrix = get_desired_matrix(pose_bone.parent, frame, source_cache, desired_cache)
             matrix = parent_matrix @ pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local
         else:
@@ -1107,10 +1150,7 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
         ordered = get_ordered_names(target, keyed)
         for frame in frames:
             source_cache, desired_cache = {}, {}
-            # Choose a share for each injected chain from the donors preliminary
-            # exact basis. The donor itself is solved again against the resulting
-            # animated parent below, so the split cannot move the donor or any of
-            # its original descendants.
+            # pick a share for each injected chain from the donors first basis... (the donor gets solved again below, so the split can't move it or its descendants)
             splits = {}
             for donor_name, injected_names in padding.items():
                 donor_pb = target.pose.bones.get(donor_name)
@@ -1118,6 +1158,7 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
                 if not donor_pb or not chain:
                     continue
                 matrix = get_desired_matrix(donor_pb, frame, source_cache, desired_cache)
+                # solve the donors basis against the animated parent...
                 if donor_pb.parent:
                     parent_matrix = get_desired_matrix(donor_pb.parent, frame, source_cache, desired_cache)
                     basis = (donor_pb.bone.matrix_local.inverted()
@@ -1126,12 +1167,14 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
                     basis = donor_pb.bone.matrix_local.inverted() @ matrix
                 splits[donor_name] = Quaternion().slerp(basis.to_quaternion(), 1.0 / (len(chain) + 1))
 
+            # then solve the actual bases down the hierarchy...
             bases, actual_cache = {}, {}
 
             def get_actual_matrix(pose_bone):
                 if pose_bone.name in actual_cache:
                     return actual_cache[pose_bone.name]
                 basis = bases.get(pose_bone.name, Matrix.Identity(4))
+                # evaluate through the parent...
                 if pose_bone.parent:
                     parent_matrix = get_actual_matrix(pose_bone.parent)
                     matrix = parent_matrix @ pose_bone.parent.bone.matrix_local.inverted() @ pose_bone.bone.matrix_local @ basis
@@ -1146,6 +1189,7 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
                     basis = Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), splits.get(injected[name], Quaternion()), Vector((1.0, 1.0, 1.0)))
                 else:
                     matrix = get_desired_matrix(pose_bone, frame, source_cache, desired_cache)
+                    # back to basis through the parent...
                     if pose_bone.parent:
                         parent_matrix = get_actual_matrix(pose_bone.parent)
                         basis = (pose_bone.bone.matrix_local.inverted()
@@ -1153,9 +1197,9 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
                     else:
                         basis = pose_bone.bone.matrix_local.inverted() @ matrix
                 bases[name] = basis
-                # This bone cannot already be cached: hierarchy order always
-                # processes a parent before any keyed descendant.
+                # this bone can't be cached yet... (hierarchy order does parents before keyed descendants)
                 get_actual_matrix(pose_bone)
+                # keep rotations on the same side and key them...
                 location, rotation, scale = basis.decompose()
                 prior = previous.get(name)
                 if prior is not None and rotation.dot(prior) < 0.0:
@@ -1168,98 +1212,198 @@ def set_rest_rebased_action(action, source, target, original_rests, applied_rest
         target.animation_data.action = active
     return rebased
 
+def set_name_handed(block, copy, names):
+    # the copy takes the real name so everything built from it comes out named the same...
+    names.append((block, block.name))
+    name, block.name = block.name, "MMT_Apply_" + str(len(names))
+    copy.name = name
+
+def get_apply_copies(original, meshes, names):
+    # apply only ever works on copies in their own visible collection, so the real objects stay exactly as they were until it has all worked...
+    coll = bpy.data.collections.new("MMT_Apply")
+    bpy.context.scene.collection.children.link(coll)
+    copies, datas = {}, {}
+    for obj in [original, *meshes]:
+        copy = obj.copy()
+        # only copy each data once...
+        if obj.data not in datas:
+            datas[obj.data] = obj.data.copy()
+            set_name_handed(obj.data, datas[obj.data], names)
+        copy.data, copy.hide_viewport = datas[obj.data], False
+        set_name_handed(obj, copy, names)
+        coll.objects.link(copy)
+        copies[obj] = copy
+    for obj, copy in copies.items():
+        if copy.parent in copies:
+            copy.parent = copies[copy.parent]
+        for mod in copy.modifiers:
+            if mod.type == 'ARMATURE' and mod.object == original:
+                mod.object = copies[original]
+    # renaming bones edits the action itself, so the copy needs its own of those too...
+    data = copies[original].animation_data
+    # actions get copied once and shared between objects...
+    if data:
+        actions = {}
+        def get_action_copy(action):
+            if action not in actions:
+                actions[action] = action.copy()
+                set_name_handed(action, actions[action], names)
+            return actions[action]
+        if data.action:
+            data.action = get_action_copy(data.action)
+        for strip in [s for t in data.nla_tracks for s in t.strips if s.action]:
+            strip.action = get_action_copy(strip.action)
+    return copies, coll
+
+def set_apply_undone(existing, names):
+    # throw away everything that got built and give the real objects their names back, they haven't been touched otherwise...
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for blocks, before in existing:
+        bpy.data.batch_remove([b for b in blocks if b not in before])
+    for block, name in names:
+        block.name = name
+
+def set_apply_committed(copies, coll, names, old_oriented, actions):
+    # everything has worked, so the copies take over from the real objects...
+    view = bpy.context.view_layer
+    others = [(b, n) for b, n in names if b not in copies]
+    built = [o for o in coll.objects if o not in copies.values()]
+    collections = list(next(iter(copies)).users_collection)
+    # anything newly built goes where the real objects were...
+    for obj in built:
+        for collection in collections:
+            collection.objects.link(obj)
+        obj.hide_viewport = old_oriented.hide_viewport
+        if old_oriented.name in view.objects and old_oriented.hide_get():
+            obj.hide_set(True)
+    # swap the real objects for their copies, keeping their visibility...
+    for obj, copy in copies.items():
+        hide = obj.name in view.objects and obj.hide_get()
+        viewport = obj.hide_viewport
+        obj.user_remap(copy)
+        copy.hide_viewport = viewport
+        if hide:
+            copy.hide_set(True)
+        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.collections.remove(coll)
+    # remove the old oriented and its data...
+    if old_oriented:
+        data = old_oriented.data
+        bpy.data.objects.remove(old_oriented, do_unlink=True)
+        if data.users == 0:
+            bpy.data.armatures.remove(data)
+    # old data still in use by something else just goes back to a free name...
+    for block, name in others:
+        if block in actions or block.users == 0:
+            bpy.data.batch_remove([block])
+        else:
+            block.name = name
+
+def set_selection_restored(name, selected, mode):
+    # back to whatever the user had, for anything thats stopped before it finished... (by name, since the object itself might be gone)
+    armature = bpy.data.objects.get(name)
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in [bpy.data.objects.get(n) for n in selected]:
+        if obj:
+            obj.select_set(True)
+    # back into the mode the armature was in...
+    if armature:
+        bpy.context.view_layer.objects.active = armature
+        bpy.ops.object.mode_set(mode=mode)
+
 def set_retargeted_armature(armature, target, max_length=None, rename=True, enforce_hierarchy=True):
     # base everything on the oriented/original pair - no more retargeting from just anything...
     _, oriented, original = utilities.functions.get_armature_hierarchy(armature)
     _, target, source = utilities.functions.get_armature_hierarchy(target)
-    # hang onto the old oriented armature and its nla layout/actions if one already exists, until its actions have been transported onto the new one below - no existing oriented just means this is the first one ever built, so there's nothing to carry over...
+    # a target missing a tier just uses the one it has for both... (eg. an original with exact names and no oriented)
+    target, source = target or source, source or target
+    # nothing has been touched yet, so this is the place to back out... (retargeting a hierarchy onto itself included)
+    if not original or not source or source == original:
+        return None, None
+    # hang onto the old oriented and its actions until they've been transported below... (no old oriented means there's nothing to carry)
     old_oriented, old_name = oriented, (oriented.name if oriented else None)
     tracks, actions = utilities.functions.get_copied_nla(old_oriented) if old_oriented else ([], [])
-    # Snapshot both the old original rest and the pose about to be baked.  Action
-    # migration below needs both to preserve deformation through that rest change.
+    # snapshot the old original rest and the pose about to be baked... (action migration needs both to keep the deformation)
     bpy.context.view_layer.update()
     original_rests = {b.name: b.matrix_local.copy() for b in original.data.bones}
     applied_rests = {pb.name: pb.matrix.copy() for pb in original.pose.bones}
     # convert the originals sockets to skeletal meshes before retargeting... (include hidden meshes)
     weighted, attached = utilities.functions.get_armature_meshes(original, bpy.context.scene.objects)
-    # unhide everything we're about to touch, so it can be selected/entered/duplicated...
-    touching = {original, *weighted, *attached}
-    if old_oriented:
-        touching.add(old_oriented)
-    hidden = utilities.functions.get_hidden_objects(touching)
-    utilities.functions.set_objects_unhidden(hidden)
-    skinning.functions.set_unsocketed_meshes(attached)
-    meshes = weighted + attached
-    bpy.ops.object.select_all(action='DESELECT')
-    # bake the current pose into the meshes too (rest is about to change underneath them), and as the new rest pose...
-    utilities.functions.set_applied_meshes(meshes, original=False, include_armature=True)
-    # apply the original armatures pose - still constraint-driven off the oriented armature, which hasn't been touched yet...
-    original.select_set(True)
-    bpy.context.view_layer.objects.active = original
-    bpy.ops.object.mode_set(mode='POSE')
-    bpy.context.view_layer.update()
-    bpy.ops.pose.armature_apply(selected=False)
-    # and clear all of it's constraints - whatever oriented armature they targeted is about to be replaced anyway...
-    for pb in original.pose.bones:
-        for con in list(pb.constraints):
-            pb.constraints.remove(con)
-    # then update it's bones in edit mode to use the target originals own orientation, keeping it's own bone lengths...
-    bpy.ops.object.mode_set(mode='EDIT')
-    forward = get_mapped_names(original, source)
-    for name in forward:
-        original_eb = original.data.edit_bones[name]
-        axes = rigging.functions.get_bone_axes(source.data.bones[forward[name]], ['+Y', '+Z'])
-        original_eb.tail = original_eb.head + (axes['+Y'] * original_eb.length)
-        original_eb.align_roll(axes['+Z'])
-        if max_length and original_eb.length > max_length:
-            original_eb.length = max_length
-    # pad out any chain the target has more bones in than original does, so both skeletons keep the same joint count...
-    padding = set_padded_bones(original, source, forward) if enforce_hierarchy else {}
-    bpy.ops.object.mode_set(mode='OBJECT')
-    # hand the padded bones a proportional share of the donor bones existing vertex weight...
-    if padding:
-        set_padded_weights(original, weighted, padding)
-    if not old_oriented:
-        # no existing oriented armature to rebuild against - this is just applying the posed originals meshes and rest pose, building oriented itself is left to its own dedicated operator...
+    # a mesh can be both, it still only gets baked and padded the once...
+    meshes = list(dict.fromkeys(weighted + attached))
+    existing = [(c, set(c)) for c in (bpy.data.objects, bpy.data.meshes, bpy.data.armatures, bpy.data.actions, bpy.data.collections, bpy.data.shape_keys)]
+    names = []
+    try:
+        copies, coll = get_apply_copies(original, meshes, names)
+        original, attached = copies[original], [copies[m] for m in attached]
+        meshes = [copies[m] for m in meshes]
+        bpy.context.view_layer.objects.active = original
+        bpy.context.view_layer.update()
+        skinning.functions.set_unsocketed_meshes(attached)
+        bpy.ops.object.select_all(action='DESELECT')
+        # bake the current pose into the meshes too (rest is about to change underneath them), and as the new rest pose...
+        utilities.functions.set_applied_meshes(meshes, original=False, include_armature=True)
+        # apply the original armatures pose - still constraint-driven off the oriented armature, which hasn't been touched yet...
+        original.select_set(True)
+        bpy.context.view_layer.objects.active = original
+        bpy.ops.object.mode_set(mode='POSE')
+        bpy.context.view_layer.update()
+        bpy.ops.pose.armature_apply(selected=False)
+        # and clear all of it's constraints - whatever oriented armature they targeted is about to be replaced anyway...
+        for pb in original.pose.bones:
+            for con in list(pb.constraints):
+                pb.constraints.remove(con)
+        # then update it's bones in edit mode to use the target originals own orientation, keeping it's own bone lengths...
+        bpy.ops.object.mode_set(mode='EDIT')
+        forward = get_mapped_names(original, source)
+        for name in forward:
+            original_eb = original.data.edit_bones[name]
+            axes = rigging.functions.get_bone_axes(source.data.bones[forward[name]], ['+Y', '+Z'])
+            original_eb.tail = original_eb.head + (axes['+Y'] * original_eb.length)
+            original_eb.align_roll(axes['+Z'])
+            if max_length and original_eb.length > max_length:
+                original_eb.length = max_length
+        # pad out any chain the target has more bones in than original does, so both skeletons keep the same joint count...
+        padding = set_padded_bones(original, source, forward) if enforce_hierarchy else {}
+        bpy.ops.object.mode_set(mode='OBJECT')
+        # hand the padded bones a proportional share of the donor bones existing vertex weight... (converted sockets too)
+        if padding:
+            set_padded_weights(original, meshes, padding)
+        oriented = None
+        if old_oriented:
+            # create a new oriented for the originals new bones... (the old one stays a little longer so its actions can transport across)
+            oriented, original = orientation.functions.add_oriented_armature(original, max_length)
+            # rebase every stashed action through the baked pose... (retargetings identity to identity mapping would lose the old baseline here)
+            retargets = []
+            for action in actions:
+                retargeted = set_rest_rebased_action(action, old_oriented, oriented, original_rests, applied_rests, padding)
+                retargets.append(retargeted)
+            for i, action in enumerate(actions):
+                if action and retargets[i]:
+                    set_name_handed(action, retargets[i], names)
+            utilities.functions.set_copied_nla(oriented, tracks, retargets)
+            # clear the active action and leftover pose so the new armature lands at rest - set_copied_nla carries over the old active action, so stash it first if it isn't already covered by a track...
+            if oriented.animation_data:
+                active = oriented.animation_data.action
+                oriented.animation_data.action = None
+                if active and not any(strip.action == active for track in oriented.animation_data.nla_tracks for strip in track.strips):
+                    utilities.functions.set_stashed_action(oriented, active)
+            rigging.functions.set_bones_reset(*oriented.pose.bones)
+        # finally we can optionally rename all the bones in the oriented and original armatures onto the targets own naming...
         if rename:
             set_mapped_names(original, source)
-        for obj in hidden:
-            obj.hide_set(True)
-        return None, original
-    # create a new oriented armature for the originals new bones... (to ensure similarity with the target) - the old one stays alive a little longer so its actions can be transported onto this one first...
-    oriented, original = orientation.functions.add_oriented_armature(original, max_length)
-    # Rebase every stashed action through the pose that was baked into the meshes.
-    # This is distinct from cross-skeleton retargeting, whose identity-to-identity
-    # rest mapping would discard the old animation baseline here.
-    retargets = []
-    for action in actions:
-        retargeted = set_rest_rebased_action(action, old_oriented, oriented, original_rests, applied_rests, padding)
-        retargets.append(retargeted)
-    for i, action in enumerate(actions):
-        if action:
-            name = action.name
-            bpy.data.actions.remove(action)
-            if retargets[i]:
-                retargets[i].name = name
-    utilities.functions.set_copied_nla(oriented, tracks, retargets)
-    # clear the active action and leftover pose so the new armature lands at rest - set_copied_nla carries over the old active action, so stash it first if it isn't already covered by a track...
-    if oriented.animation_data:
-        active = oriented.animation_data.action
-        oriented.animation_data.action = None
-        if active and not any(strip.action == active for track in oriented.animation_data.nla_tracks for strip in track.strips):
-            utilities.functions.set_stashed_action(oriented, active)
-    rigging.functions.set_bones_reset(*oriented.pose.bones)
-    # get rid of the old oriented armature and reclaim its own name (object and data both) now its gone...
-    data = old_oriented.data
-    bpy.data.objects.remove(old_oriented, do_unlink=True)
-    if data.users == 0:
-        bpy.data.armatures.remove(data)
-    oriented.name, oriented.data.name = old_name, old_name
-    # finally we can optionally rename all the bones in the oriented and original armatures onto the targets own naming...
-    if rename:
-        set_mapped_names(original, source)
-        set_mapped_names(oriented, target)
-    # rehide anything that wasn't visible to begin with...
-    for obj in hidden:
-        obj.hide_set(True)
+            if oriented:
+                set_mapped_names(oriented, target)
+    except Exception:
+        set_apply_undone(existing, names)
+        raise
+    # no oriented just means applying the posed originals meshes and rest pose, building oriented itself is left to its own dedicated operator...
+    bpy.ops.object.mode_set(mode='OBJECT')
+    set_apply_committed(copies, coll, names, old_oriented, actions)
+    # the old oriented is gone now, so reclaim its own name... (object and data both)
+    if oriented:
+        oriented.name, oriented.data.name = old_name, old_name
     return oriented, original

@@ -33,6 +33,7 @@ def debug_shape_cleanup(scene, depsgraph):
 def add_debug_cube(name, location, scale, rotation, taper=0.0):
     # remove any existing debug cube with this name...
     existing = bpy.data.objects.get(name)
+    # replace any existing debug object...
     if existing:
         data = existing.data
         bpy.data.objects.remove(existing, do_unlink=True)
@@ -43,6 +44,7 @@ def add_debug_cube(name, location, scale, rotation, taper=0.0):
     # scale the +Y face vertices toward center based on taper (tail end)...
     if taper > 0.0:
         for v in bm.verts:
+            # taper the top of the cube...
             if v.co.y > 0.99:
                 v.co.x *= (1.0 - taper)
                 v.co.z *= (1.0 - taper)
@@ -51,6 +53,7 @@ def add_debug_cube(name, location, scale, rotation, taper=0.0):
     bm.free()
     # get or create the debug collection and link it to the scene root if new...
     debug_collection = bpy.data.collections.get("Debug")
+    # create the debug collection if needed...
     if not debug_collection:
         debug_collection = bpy.data.collections.new("Debug")
         bpy.context.scene.collection.children.link(debug_collection)
@@ -67,6 +70,7 @@ def add_debug_cube(name, location, scale, rotation, taper=0.0):
 def add_debug_cylinder(name, location, scale, rotation, cap_ends=True, taper=False):
     # remove any existing debug cylinder with this name...
     existing = bpy.data.objects.get(name)
+    # replace any existing debug object...
     if existing:
         data = existing.data
         bpy.data.objects.remove(existing, do_unlink=True)
@@ -83,6 +87,7 @@ def add_debug_cylinder(name, location, scale, rotation, cap_ends=True, taper=Fal
     bm.free()
     # get or create the debug collection and link it to the scene root if new...
     debug_collection = bpy.data.collections.get("Debug")
+    # create the debug collection if needed...
     if not debug_collection:
         debug_collection = bpy.data.collections.new("Debug")
         bpy.context.scene.collection.children.link(debug_collection)
@@ -99,6 +104,7 @@ def add_debug_cylinder(name, location, scale, rotation, cap_ends=True, taper=Fal
 def add_debug_sphere(name, location, scale, rotation, hemisphere=None):
     # remove any existing debug sphere with this name...
     existing = bpy.data.objects.get(name)
+    # replace any existing debug object...
     if existing:
         data = existing.data
         bpy.data.objects.remove(existing, do_unlink=True)
@@ -119,6 +125,7 @@ def add_debug_sphere(name, location, scale, rotation, hemisphere=None):
     bm.free()
     # get or create the debug collection and link it to the scene root if new...
     debug_collection = bpy.data.collections.get("Debug")
+    # create the debug collection if needed...
     if not debug_collection:
         debug_collection = bpy.data.collections.new("Debug")
         bpy.context.scene.collection.children.link(debug_collection)

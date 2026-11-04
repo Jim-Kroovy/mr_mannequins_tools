@@ -5,7 +5,7 @@ from bpy.props import (EnumProperty, BoolProperty, StringProperty, FloatProperty
 from . import _functions as functions
 from . import _interface as interface
 
-class MMT_OT_Mirror(bpy.types.Operator):
+class MMT_OT_ShapingMirror(bpy.types.Operator):
     """Mirrors shape keys over the X axis by left/right affix"""
     bl_idname = "mmt.mirror"
     bl_label = "Mirror Shape Keys"
@@ -54,10 +54,10 @@ class MMT_OT_Mirror(bpy.types.Operator):
 def add_mirror_operator(self, context):
     self.layout.separator()
     row = self.layout.row()
-    row.operator(MMT_OT_Mirror.bl_idname, icon='MOD_MIRROR')
+    row.operator(MMT_OT_ShapingMirror.bl_idname, icon='MOD_MIRROR')
     row.enabled = True if context.object and context.object.type == 'MESH' and context.object.data.shape_keys else False
 
-class MMT_OT_Blend(bpy.types.Operator):
+class MMT_OT_ShapingBlend(bpy.types.Operator):
     """Blends shape keys by vertex selection"""
     bl_idname = "mmt.blend"
     bl_label = "Blend Shape Keys"
@@ -97,18 +97,18 @@ class MMT_OT_Blend(bpy.types.Operator):
 
     def execute(self, context):
         selection = [o for o in context.selected_objects if o.type == 'MESH' and o.visible_get()]
-        if not self.into:
+        if self.into:
+            functions.set_blended_shapes(selection, self.prefix, self.active, self.blend, self.into, self.alpha, self.steps)
+        else:
             self.report({'WARNING'}, "No shape key chosen to blend into.")
-            return {'FINISHED'}
-        functions.set_blended_shapes(selection, self.prefix, self.active, self.blend, self.into, self.alpha, self.steps)
         return {'FINISHED'}
 
 def add_blend_operator(self, context):
     row = self.layout.row()
-    row.operator(MMT_OT_Blend.bl_idname, icon='MOD_SMOOTH')
+    row.operator(MMT_OT_ShapingBlend.bl_idname, icon='MOD_SMOOTH')
     row.enabled = True if context.object and context.object.type == 'MESH' and context.object.data.shape_keys else False
 
-class MMT_OT_Extract(bpy.types.Operator):
+class MMT_OT_ShapingExtract(bpy.types.Operator):
     """Extracts shape keys on the edited mesh into their own separate meshes"""
     bl_idname = "mmt.extract"
     bl_label = "Extract Shape Keys"
@@ -124,5 +124,5 @@ class MMT_OT_Extract(bpy.types.Operator):
 
 def add_extract_operator(self, context):
     row = self.layout.row()
-    row.operator(MMT_OT_Extract.bl_idname, icon='SHAPEKEY_DATA')
+    row.operator(MMT_OT_ShapingExtract.bl_idname, icon='SHAPEKEY_DATA')
     row.enabled = True if context.object and context.object.type == 'MESH' and context.object.data.shape_keys else False

@@ -2,7 +2,7 @@ import bpy
 
 from bpy.props import (EnumProperty, BoolProperty, StringProperty, FloatProperty, PointerProperty)
 
-class MMT_PG_ExportFBX(bpy.types.PropertyGroup):
+class MMT_PG_ExportingFBX(bpy.types.PropertyGroup):
 
     scaling: FloatProperty(
         name="Scale", description="Scale all data.",
@@ -104,7 +104,7 @@ class MMT_PG_ExportFBX(bpy.types.PropertyGroup):
         default=True
         )
 
-class MMT_PG_Clean(bpy.types.PropertyGroup):
+class MMT_PG_ExportingCleanup(bpy.types.PropertyGroup):
  
     prefix: StringProperty(
         name="Prefix", description="Only clean data that starts with this prefix.",
@@ -126,7 +126,7 @@ class MMT_PG_Clean(bpy.types.PropertyGroup):
         default=False
         )
 
-class MMT_PG_Meshes(bpy.types.PropertyGroup):
+class MMT_PG_ExportingMeshes(bpy.types.PropertyGroup):
 
     export: BoolProperty(
         name="Export", description="Export meshes.",
@@ -167,7 +167,7 @@ class MMT_PG_Meshes(bpy.types.PropertyGroup):
         default=True
         )
 
-class MMT_PG_Action(bpy.types.PropertyGroup):
+class MMT_PG_ExportingAction(bpy.types.PropertyGroup):
 
     export: BoolProperty(
         name="Export", description="Export actions.",
@@ -184,7 +184,7 @@ class MMT_PG_Action(bpy.types.PropertyGroup):
             ('ACTIVE', "Only Active", "Export only the active action on armatures.", '', 0),
             ('STASHED', "Only Stashed", "Export only the stashed actions on armatures.", '', 1),
             ('ALL', "All Actions", "Export all actions that the armature can use.", '', 2),
-            ], default=0
+            ], default='STASHED'
         )
     
     batch: BoolProperty(
@@ -192,12 +192,12 @@ class MMT_PG_Action(bpy.types.PropertyGroup):
         default=True
         )
 
-class MMT_PG_Export(bpy.types.PropertyGroup):
+class MMT_PG_ExportingSettings(bpy.types.PropertyGroup):
 
-    filmbox: PointerProperty(type=MMT_PG_ExportFBX, name="Filmbox")
+    filmbox: PointerProperty(type=MMT_PG_ExportingFBX, name="Filmbox")
 
-    meshes: PointerProperty(type=MMT_PG_Meshes, name="Meshes")
+    meshes: PointerProperty(type=MMT_PG_ExportingMeshes, name="Meshes")
 
-    action: PointerProperty(type=MMT_PG_Action, name="Action")
+    action: PointerProperty(type=MMT_PG_ExportingAction, name="Action")
 
-    clean: PointerProperty(type=MMT_PG_Clean, name="Clean")
+    clean: PointerProperty(type=MMT_PG_ExportingCleanup, name="Clean")

@@ -37,6 +37,7 @@ def get_twist_defaults():
 def get_twist_axis(target, axis):
     # auto picks whichever target bone axis points furthest from the world origin...
     axes = _functions.get_bone_axes(target, ['+X', '-X', '+Z', '-Z'])
+    # auto picks the closest axis...
     if axis == 'AUTO':
         axis, direction = utilities.functions.get_closest_axis(target.head.normalized(), axes)
         return axis, direction
@@ -49,10 +50,12 @@ def add_twist_bones(oriented, rig, settings):
 
     # if the origin is the target the vector needs its parent instead, so it's not rigidly locked to the targets own twist...
     parent_eb = None
+    # origin and target are the same, so use its parent...
     if suffices['origin'].affix == suffices['target'].affix:
         oriented_eb = oriented.data.edit_bones.get(suffices['origin'].affix).parent
         added[prefices['forward'].affix + oriented_eb.name] = {}
         existing = rig.data.edit_bones.get(prefices['forward'].affix + oriented_eb.name)
+        # add the parents forward bone if it isn't there...
         if oriented_eb and not existing:
             prefix, suffix = prefices['forward'].affix, oriented_eb.name
             name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'origin', search=True)
@@ -62,6 +65,7 @@ def add_twist_bones(oriented, rig, settings):
     # add the origin bone if there is one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices['forward'].affix, suffices['origin'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'origin', search=True)
@@ -101,6 +105,7 @@ def add_twist_bones(oriented, rig, settings):
     # add the twist target bone if it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['target'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['target'].affix)
+    # add the targets forward bone if it isn't there...
     if not existing:
         prefix, suffix = prefices['forward'].affix, suffices['target'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'origin', search=True)
@@ -240,55 +245,55 @@ def invoke_twist_module(context, module):
         _functions.add_chain_names(module.settings, 1, ending=True)
         # twist needs at least one twist bone and an ending bone to form a chain...
         print("Select at least one twist bone and a target.")
-        return True
-    # add ordinal chain bones from all but the last selected bone...
-    for index, bone in enumerate(selection):
-        # so we can detect the bones used to add the rigging...
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-    # target is always the active bone, not unique - the same bone can drive more than one twist chain...
-    target = module.settings.suffices.add()
-    target.name, target.affix, target.unique, target.required = 'target', active.name, False, True
-    # closest chain bone to targets parent - if its actually nearer the target, the chain sits alongside it...
-    parent = active.parent
-    if parent:
-        # prefer hierarchy for one twist bone... (distance can assign lowerarm twists to hands)...
-        def is_under(bone, ancestor):
-            while bone:
-                if bone == ancestor:
-                    return True
-                bone = bone.parent
-            return False
+    else:
+        # add ordinal chain bones from all but the last selected bone...
+        for index, bone in enumerate(selection):
+            # so we can detect the bones used to add the rigging...
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+        # target is always the active bone, not unique - the same bone can drive more than one twist chain...
+        target = module.settings.suffices.add()
+        target.name, target.affix, target.unique, target.required = 'target', active.name, False, True
+        # closest chain bone to targets parent - if its actually nearer the target, the chain sits alongside it...
+        parent = active.parent
+        if parent:
+            # prefer hierarchy for one twist bone... (distance can assign lowerarm twists to hands)...
+            def is_under(bone, ancestor):
+                while bone:
+                    if bone == ancestor:
+                        return True
+                    bone = bone.parent
+                return False
 
-        in_active_chain = any(is_under(pb.bone, active) for pb in selection)
-        in_parent_chain = any(is_under(pb.bone, parent) for pb in selection)
-        if in_active_chain:
-            # a twist below the target uses the target as origin... (preserves thigh inverse chains)...
-            beside_target = True
-        elif in_parent_chain:
-            # sibling twists under the targets parent use the parent-to-target span... (distance can mislead)...
-            beside_target = False
+            in_active_chain = any(is_under(pb.bone, active) for pb in selection)
+            in_parent_chain = any(is_under(pb.bone, parent) for pb in selection)
+            if in_active_chain:
+                # a twist below the target uses the target as origin... (preserves thigh inverse chains)...
+                beside_target = True
+            elif in_parent_chain:
+                # sibling twists under the targets parent use the parent-to-target span... (distance can mislead)...
+                beside_target = False
+            else:
+                closest = min(selection, key=lambda pb: (pb.head - parent.head_local).length)
+                beside_target = (closest.head - parent.head_local).length >= (closest.head - active.head_local).length
         else:
-            closest = min(selection, key=lambda pb: (pb.head - parent.head_local).length)
-            beside_target = (closest.head - parent.head_local).length >= (closest.head - active.head_local).length
-    else:
-        beside_target = True
-    if beside_target:
-        # the target is its own origin - auto detect the furthest immediate child as the ending instead...
-        origin = active
-        ending = max(active.children, key=lambda c: (c.head_local - active.head_local).length) if active.children else active
-    else:
-        origin, ending = parent, active
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    end = module.settings.suffices.add()
-    end.name, end.affix, end.unique, end.required = 'ending', ending.name, False, False
-    _functions.set_auto_mirror(module.settings, selection + [active, ending], origin)
-    # initialize the offset using the scenes unit scale...
-    module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
-    module.settings.inverse = active == origin
+            beside_target = True
+        if beside_target:
+            # the target is its own origin - auto detect the furthest immediate child as the ending instead...
+            origin = active
+            ending = max(active.children, key=lambda c: (c.head_local - active.head_local).length) if active.children else active
+        else:
+            origin, ending = parent, active
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        end = module.settings.suffices.add()
+        end.name, end.affix, end.unique, end.required = 'ending', ending.name, False, False
+        _functions.set_auto_mirror(module.settings, selection + [active, ending], origin)
+        # initialize the offset using the scenes unit scale...
+        module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
+        module.settings.inverse = active == origin
     return True
 
 def draw_twist_settings(layout, oriented, module):

@@ -91,6 +91,7 @@ def invoke_custom_module(context, module):
         return False
     # selected pose bones seem to respect hierarchy... (isolate them to the oriented armature)...
     selection = [pb for pb in (context.selected_pose_bones or []) if pb.id_data == oriented]
+    # needs something selected...
     if not selection:
         print("Select at least one bone to build custom rigging for.")
         return False

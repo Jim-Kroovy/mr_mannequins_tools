@@ -10,7 +10,14 @@ from .. import rigging
 
 from . import _functions as functions
 
-class MMT_OT_Oriented(bpy.types.Operator):
+def update_original_shape(self, context):
+    # picking a shape in the redo panel means it should actually be applied...
+    self.original_preserve = False
+
+def update_oriented_shape(self, context):
+    self.oriented_preserve = False
+
+class MMT_OT_OrientationArmature(bpy.types.Operator):
     """Makes a Blender compatible armature by orienting bones using shortest rolls by matching names. (adds any new bones from the original)"""
     bl_idname = "mmt.oriented"
     bl_label = "Set Oriented Armature"
@@ -28,11 +35,16 @@ class MMT_OT_Oriented(bpy.types.Operator):
 
     original_shape: EnumProperty(
         name="Original Shape", description="Custom shape for the original armatures bones.",
-        items=utilities.functions.get_shape_items)
+        items=utilities.functions.get_shape_items, update=update_original_shape)
 
     oriented_shape: EnumProperty(
         name="Oriented Shape", description="Custom shape for the oriented armatures bones.",
-        items=utilities.functions.get_shape_items)
+        items=utilities.functions.get_shape_items, update=update_oriented_shape)
+
+    # keep a tiers existing per bone shapes when there's no single shape to remember or infer for it...
+    original_preserve: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+
+    oriented_preserve: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
 
     def draw(self, context):
         layout = self.layout
@@ -45,12 +57,33 @@ class MMT_OT_Oriented(bpy.types.Operator):
         row = layout.row()
         row.prop(self, 'oriented_shape')
 
+    def invoke(self, context, event):
+        utilities.functions.set_shape_items(utilities.functions.get_addon_preferences(context))
+        _, oriented, existing = utilities.functions.get_armature_hierarchy(context.object)
+        # anything not explicitly passed in gets the hierarchies remembered settings... (ghost values are just whatever ran last on any armature)...
+        for name, identifier, tier in (('original_shape', 'original_identifier', 'ORIGINAL'), ('oriented_shape', 'oriented_identifier', 'ORIENTED')):
+            # only read the remembered shape if it wasn't set in the redo panel...
+            if not self.properties.is_property_set(name, ghost=False):
+                shape = functions.get_remembered_shape(context.object, identifier, tier)
+                if shape:
+                    setattr(self, name, shape)
+                # an existing pair with nothing to go on keeps its own shapes rather than the ghost value...
+                elif oriented and existing:
+                    setattr(self, tier.lower() + '_preserve', True)
+        # same for the remembered length...
+        if not self.properties.is_property_set('max_length', ghost=False):
+            settings = next((a.data.mmt.orientation for a in utilities.functions.get_armature_hierarchy(context.object) if a and a.data.mmt.orientation.original_identifier), None)
+            if settings:
+                self.max_length = settings.max_length
+        return self.execute(context)
+
     def execute(self, context):
         original = context.object
         _, oriented, existing = utilities.functions.get_armature_hierarchy(original)
         # add missing original bones to the existing oriented armature...
         if oriented and existing:
             names = [n for n in utilities.functions.get_bone_order(existing, {b.name for b in existing.data.bones}) if n not in oriented.data.bones]
+            # we have bones to work with, so store the mode and selection first...
             if names:
                 mode, selected, active = utilities.functions.get_current_objects(context)
                 bpy.ops.object.mode_set(mode='OBJECT')
@@ -64,22 +97,31 @@ class MMT_OT_Oriented(bpy.types.Operator):
                 utilities.functions.set_current_objects(mode, selected, active)
             # existing pairs still need shape changes... (the operator doubles as their shape assignment)...
             names = [bone.name for bone in existing.data.bones if bone.name in oriented.data.bones]
-            functions.set_shaped_bones(existing, oriented, names, self.original_shape, self.oriented_shape)
+            original_shape = None if self.original_preserve else self.original_shape
+            oriented_shape = None if self.oriented_preserve else self.oriented_shape
+            # preserved tiers get their own per bone shapes (and scales) put back after the assignment...
+            kept = {(a, n): (a.pose.bones[n].custom_shape, a.pose.bones[n].custom_shape_scale_xyz.copy()) for a, s in ((existing, original_shape), (oriented, oriented_shape)) if s is None for n in names}
+            functions.set_shaped_bones(existing, oriented, names, original_shape or 'NONE', oriented_shape or 'NONE')
+            for (armature, name), (shape, scale) in kept.items():
+                armature.pose.bones[name].custom_shape, armature.pose.bones[name].custom_shape_scale_xyz = shape, scale
+            functions.set_remembered_settings(oriented, self.max_length, original_shape, oriented_shape)
             return {'FINISHED'}
         # not compatible yet - check for a pre-existing rigging armature to hand off to the new oriented below...
         rig = next((c for c in original.children if c.get('Armature Type') == "Rigging"), None)
         max_length = self.max_length if self.max_length > 0.0 else None
         oriented, original = functions.add_oriented_armature(original, max_length, self.original_shape, self.oriented_shape, self.actions)
+        # an existing rigging armature needs reparenting onto the new oriented...
         if rig:
             functions.clear_parent_constraints(original)
             functions.set_rigging_reparented(rig, oriented)
+        functions.set_remembered_settings(oriented, self.max_length, self.original_shape, self.oriented_shape)
         return {'FINISHED'}
 
 def add_oriented_operator(self, context):
     self.layout.separator()
-    self.layout.operator(MMT_OT_Oriented.bl_idname, text=functions.get_oriented_label(context.object), icon='GROUP_BONE')
+    self.layout.operator(MMT_OT_OrientationArmature.bl_idname, text=functions.get_oriented_label(context.object), icon='GROUP_BONE')
 
-class MMT_OT_Orient(bpy.types.Operator):
+class MMT_OT_OrientationBone(bpy.types.Operator):
     """Orients bone tails and rolls to align axes in the input space."""
     bl_idname = "mmt.orient"
     bl_label = "Set Bone Orientation"
@@ -200,7 +242,7 @@ class MMT_OT_Orient(bpy.types.Operator):
 
 def add_orient_operator(self, context):
     row = self.layout.row()
-    row.operator(MMT_OT_Orient.bl_idname, icon='ORIENTATION_GIMBAL')
+    row.operator(MMT_OT_OrientationBone.bl_idname, icon='ORIENTATION_GIMBAL')
 
 
 

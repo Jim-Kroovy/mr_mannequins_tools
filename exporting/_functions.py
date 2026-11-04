@@ -42,12 +42,20 @@ def get_export_assets(only_selected=False):
     for armature in armatures:
         rig, oriented, original = utilities.functions.get_armature_hierarchy(armature)
         export = original if original else oriented
-        if export not in targets:
-            weighted, attached = utilities.functions.get_armature_meshes(armature, meshes)
-            rig = rig if rig else oriented if oriented else original
-            # detect all actions (apply the export method later)...
-            actions = utilities.functions.get_armature_actions(rig, method='ALL')
-            targets[export.name] = {'sockets' : [a.name for a in attached], 'skeletals' : [w.name for w in weighted], 'actions' : [a.name for a in actions]}
+        # a malformed tagged hierarchy may not resolve to an exportable original or oriented armature...
+        if not export:
+            continue
+        weighted, attached = utilities.functions.get_armature_meshes(armature, meshes)
+        rig = rig if rig else oriented if oriented else original
+        # detect all actions (apply the export method later)...
+        actions = utilities.functions.get_armature_actions(rig, method='ALL')
+        # several hierarchy members can resolve to the same export target, so union their discoveries...
+        target = targets.setdefault(export.name, {'sockets' : set(), 'skeletals' : set(), 'actions' : set()})
+        target['sockets'].update(a.name for a in attached)
+        target['skeletals'].update(w.name for w in weighted)
+        target['actions'].update(a.name for a in actions)
+    # return stable, duplicate-free lists without making the result depend on hierarchy iteration order...
+    targets = {name: {kind: sorted(assets) for kind, assets in target.items()} for name, target in targets.items()}
     return statics, targets
 
 def export_file_fbx(filepath, settings, animation=False, nla_strips=False):
@@ -214,6 +222,39 @@ def export_socket_meshes(meshes, settings, directory):
         export_file_fbx(filepath, settings.filmbox, animation=False)
         mesh.select_set(False)
 
+def get_rest_value(fcurve):
+    # what a pose channel holds at rest, or nothing when the curve isn't a pose transform...
+    match = re.search(r'\.(location|rotation_quaternion|rotation_euler|rotation_axis_angle|scale)$', fcurve.data_path)
+    # the rest value depends on the channel... (scale rests at one)
+    if match:
+        channel, index = match.group(1), fcurve.array_index
+        if channel == 'scale':
+            return 1.0
+        elif channel == 'rotation_quaternion':
+            return 1.0 if index == 0 else 0.0
+        elif channel == 'rotation_axis_angle':
+            return 1.0 if index == 2 else 0.0
+        return 0.0
+    return None
+
+def add_rest_keys(action, frame):
+    # key the rest pose on the given frame... (fast so the baked keys handles never get recalculated)
+    fcurves = [fc for fc in utilities.functions.get_action_fcurves(action) if get_rest_value(fc) is not None]
+    for fcurve in fcurves:
+        fcurve.keyframe_points.insert(frame, get_rest_value(fcurve), options={'FAST'})
+    return fcurves
+
+def get_rest_action(action):
+    # a scratch copy of a baked action that only holds the rest pose, on its existing slot...
+    rest = action.copy()
+    rest.name = "REST_" + action.name
+    for fcurve in utilities.functions.get_action_fcurves(rest):
+        value = get_rest_value(fcurve)
+        fcurve.keyframe_points.clear()
+        if value is not None:
+            fcurve.keyframe_points.insert(1.0, value, options={'FAST'})
+    return rest
+
 def export_baked_actions(armature, actions, settings, directory, name):
     # ensure we are in object mode with nothing selected...
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -232,18 +273,30 @@ def export_baked_actions(armature, actions, settings, directory, name):
             con.enabled = False
     armature.data.pose_position = 'POSE'
     bpy.context.view_layer.update()
+    # the fbx writer stores whatever pose the armature is in as each bones node default, after it has sampled the animation...
+    scene = bpy.context.scene
+    frame, subframe = scene.frame_current, scene.frame_subframe
     # batching writes one file per action, otherwise every action bakes into one files animation stacks instead...
     if settings.action.batch:
         for action in actions:
             armature.animation_data.action = action
             armature.animation_data.action_slot = action.slots[0]
-            bpy.context.scene.frame_start = int(action.frame_range[0])
-            bpy.context.scene.frame_end = int(action.frame_range[1])
+            scene.frame_start = int(action.frame_range[0])
+            scene.frame_end = int(action.frame_range[1])
             filename = get_safe_name(action["Exchange Name"]) + ".fbx"
             filepath = os.path.join(directory, filename)
             if settings.action.folder:
                 filepath = os.path.join(directory, os.path.join(settings.action.folder, filename))
-            export_file_fbx(filepath, settings.filmbox, animation=True)
+            # so sit on rest keys just past the range the writer samples... (they go away with the scratch bake)
+            rest_frame = scene.frame_end + 2
+            fcurves = add_rest_keys(action, rest_frame)
+            try:
+                scene.frame_set(rest_frame)
+                export_file_fbx(filepath, settings.filmbox, animation=True)
+            finally:
+                for fcurve in fcurves:
+                    fcurve.keyframe_points.remove(fcurve.keyframe_points[-1], fast=True)
+                scene.frame_set(frame, subframe=subframe)
     else:
         # mute existing tracks and add one per baked action (merged export)...
         existing_tracks = list(armature.animation_data.nla_tracks)
@@ -256,17 +309,24 @@ def export_baked_actions(armature, actions, settings, directory, name):
             track.name, track.mute = action["Exchange Name"], False
             track.strips.new(track.name, int(action.frame_range[0]), action)
             tracks.append(track)
-        armature.animation_data.action = None
         filename = get_safe_name(name) + "_Actions.fbx"
         filepath = os.path.join(directory, filename)
         if settings.action.folder:
             filepath = os.path.join(directory, os.path.join(settings.action.folder, filename))
-        export_file_fbx(filepath, settings.filmbox, animation=True, nla_strips=True)
-        # remove our temporary tracks and restore whatever was already there...
-        for track in tracks:
-            armature.animation_data.nla_tracks.remove(track)
-        for track, was_muted in zip(existing_tracks, muted):
-            track.mute = was_muted
+        # the writer lifts the active action off while it samples the strips, so a rest pose action only overrides them for the node defaults...
+        rest = get_rest_action(actions[0])
+        armature.animation_data.action = rest
+        armature.animation_data.action_slot = rest.slots[0]
+        try:
+            export_file_fbx(filepath, settings.filmbox, animation=True, nla_strips=True)
+        finally:
+            armature.animation_data.action = None
+            bpy.data.actions.remove(rest)
+            # remove our temporary tracks and restore whatever was already there...
+            for track in tracks:
+                armature.animation_data.nla_tracks.remove(track)
+            for track, was_muted in zip(existing_tracks, muted):
+                track.mute = was_muted
     # remove the scratch baked actions and restore each original ones name... (in case of multiple armatures)...
     for action in actions:
         original_name = action["Exchange Name"]
@@ -277,6 +337,7 @@ def export_baked_actions(armature, actions, settings, directory, name):
 def set_cleared_transforms(item, location, rotation, scale):
     if location:
         item.location = (0.0, 0.0, 0.0)
+    # clear every rotation mode so whichever one is active reads correctly...
     if rotation:
         item.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
         item.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
@@ -297,16 +358,9 @@ def export_filmbox_assets(directory, settings, statics, targets):
         objects.update(a for a in (rig, oriented, original) if a)
         objects.update(bpy.data.objects[n] for n in assets['sockets'] + assets['skeletals'])
     utilities.functions.set_objects_localized(objects)
-    # run the cleanup settings first as it could reduce processing anything that might be removed...
-    if settings.clean.prefix and settings.meshes.export:
-        meshes = [bpy.data.objects[n] for n in statics]
-        for _, assets in targets.items():
-            sockets = [bpy.data.objects[n] for n in assets['sockets']]
-            skeletals = [bpy.data.objects[n] for n in assets['skeletals']]
-            meshes = meshes + sockets + skeletals
-        prefix, shapes = settings.clean.prefix, settings.clean.shapes
-        groups, materials = settings.clean.groups, settings.clean.materials
-        utilities.functions.set_cleaned_meshes(meshes, prefix, shapes, groups, materials)
+    # cleanup runs last on each mesh set right before it's exported... (prefixed groups/shapes/materials might be feeding its modifiers)...
+    prefix, shapes = settings.clean.prefix, settings.clean.shapes
+    groups, materials = settings.clean.groups, settings.clean.materials
     # if we have static meshes...
     if statics and settings.meshes.export and settings.meshes.static:
         # make sure they aren't hidden...
@@ -321,6 +375,8 @@ def export_filmbox_assets(directory, settings, statics, targets):
         # then we apply everything we want to apply to the meshes...
         utilities.functions.set_applied_meshes(meshes, original=False, modifiers=settings.meshes.modifiers, parent=False,
             location=False, rotation=False, scale=False)
+        if prefix:
+            utilities.functions.set_cleaned_meshes(meshes, prefix, shapes, groups, materials)
         # and yeet them out to fbx...
         export_static_meshes(meshes, settings, directory)
     # transform armatures and their assets...
@@ -345,6 +401,8 @@ def export_filmbox_assets(directory, settings, statics, targets):
             # they might only need their modifiers applied...
             utilities.functions.set_applied_meshes(meshes, original=False, modifiers=settings.meshes.modifiers, parent=False,
                 location=False, rotation=False, scale=True)
+            if prefix:
+                utilities.functions.set_cleaned_meshes(meshes, prefix, shapes, groups, materials)
             export_socket_meshes(meshes, settings, directory)
         # get and prepare skeletal meshes... (if any)...
         meshes = []
@@ -363,6 +421,8 @@ def export_filmbox_assets(directory, settings, statics, targets):
         utilities.functions.set_armature_transforms(armature, meshes, baked, False, False, True)
         # and export the skeletal meshes along with their armature...
         if meshes and settings.meshes.export and settings.meshes.skeletal:
+            if prefix:
+                utilities.functions.set_cleaned_meshes(meshes, prefix, shapes, groups, materials)
             export_skeletal_meshes(armature, meshes, settings, directory, name)
          # and export the baked actions along with their armature...
         if actions:
@@ -381,7 +441,7 @@ def export_filmbox_background(directory, settings, statics, targets):
             json.dump(payload, f)
         # save a disposable full copy of the current file... (doesn't touch the live session at all)...
         bpy.ops.wm.save_as_mainfile(filepath=blend_path, copy=True, check_existing=False)
-        # write the background script that rebuilds the settings and runs the real export... (import path built from our own root package, since an extension install's real module name is "bl_ext.<repo>.mr_mannequins_tools", not the bare legacy name)...
+        # write the background script that rebuilds the settings and runs the export... (import path comes from our root package, an extension isn't the bare legacy name)
         root = __package__.rsplit('.', 1)[0]
         script = (
             "import bpy, sys, json\n"
@@ -392,7 +452,7 @@ def export_filmbox_background(directory, settings, statics, targets):
             "from " + root + ".utilities import _functions as utility_functions\n"
             "with open(settings_path, 'r', encoding='utf-8') as f:\n"
             "    payload = json.load(f)\n"
-            "bpy.types.Scene.mmt_export_background = bpy.props.PointerProperty(type=properties.MMT_PG_Export)\n"
+            "bpy.types.Scene.mmt_export_background = bpy.props.PointerProperty(type=properties.MMT_PG_ExportingSettings)\n"
             "settings = bpy.context.scene.mmt_export_background\n"
             "utility_functions.set_deserialized_settings(settings, payload['settings'])\n"
             "functions.export_filmbox_assets(directory, settings, payload['statics'], payload['targets'])\n"

@@ -32,7 +32,7 @@ def draw_module_controls(layout, rig, rigging, module):
         from .modules import root
         root.draw_root_controls(layout, rig, module)
 
-class MMT_UL_Modules(bpy.types.UIList):
+class MMT_UL_RiggingModules(bpy.types.UIList):
     bl_idname = "MMT_UL_Modules"
 
     icons = {
@@ -76,7 +76,7 @@ def draw_module_settings(layout, oriented, module):
         from .modules import custom
         custom.draw_custom_settings(layout, oriented, module)
 
-class MMT_PT_Modules(bpy.types.Panel):
+class MMT_PT_RiggingModules(bpy.types.Panel):
     bl_idname = "MMT_PT_Modules"
     bl_label = "Rigging Modules"
     bl_order = 1
@@ -106,15 +106,19 @@ class MMT_PT_Modules(bpy.types.Panel):
         row.template_list("MMT_UL_Modules", "", data.mmt, "rigging", data.mmt, "module")
         col = row.column(align=True)
         # editing the list only makes sense in pose mode, everywhere else it's read only...
-        col.enabled = posed
-        add = col.operator("mmt.add", icon='ADD', text="")
+        edit = col.column(align=True)
+        edit.enabled = posed
+        add = edit.operator("mmt.add", icon='ADD', text="")
         add.rigging_type = 'NONE'
-        col.operator("mmt.remove", icon='REMOVE', text="")
+        edit.operator("mmt.remove", icon='REMOVE', text="")
+        edit.separator()
+        edit.operator("mmt.move", icon='TRIA_UP', text="").direction = 'UP'
+        edit.operator("mmt.move", icon='TRIA_DOWN', text="").direction = 'DOWN'
         col.separator()
-        col.operator("mmt.move", icon='TRIA_UP', text="").direction = 'UP'
-        col.operator("mmt.move", icon='TRIA_DOWN', text="").direction = 'DOWN'
-        col.separator()
-        col.menu("MMT_MT_module_options", icon='DOWNARROW_HLT', text="")
+        # rebuild/copy/paste work from object or pose mode, just not edit mode...
+        options = col.column(align=True)
+        options.enabled = context.object.mode != 'EDIT'
+        options.menu("MMT_MT_module_options", icon='DOWNARROW_HLT', text="")
         # settings and controls both need pose bones to work on, so only show them in pose mode...
         if posed and 0 <= data.mmt.module < len(data.mmt.rigging):
             item = data.mmt.rigging[data.mmt.module]
@@ -131,6 +135,7 @@ class MMT_PT_Modules(bpy.types.Panel):
                 # collapsible like blenders own sub-panels (eg. custom shape under viewport display)...
                 header, panel = layout.panel("mmt_module_settings", default_closed=False)
                 header.label(text="Settings" if reference == item else "Settings (previous module)")
+                # only the module being edited can be changed...
                 if panel:
                     panel.enabled = reference == item
                     draw_module_settings(panel, oriented, reference)
@@ -138,6 +143,7 @@ class MMT_PT_Modules(bpy.types.Panel):
                 prefices = [p for p in reference.settings.prefices]
                 header, panel = layout.panel("mmt_settings_naming", default_closed=True)
                 header.label(text="Naming")
+                # only the module being edited can be changed...
                 if panel:
                     panel.enabled = reference == item
                     show_operator_naming(panel, reference, _functions.get_naming_validity(prefices))
@@ -149,13 +155,14 @@ class MMT_PT_Modules(bpy.types.Panel):
                 header.label(text="Shapes")
                 if panel:
                     show_operator_shapes(panel, item)
+            # not every type has controls...
             if item.rigging in rigging_types:
                 header, panel = layout.panel("mmt_module_controls", default_closed=True)
                 header.label(text="Controls")
                 if panel:
                     draw_module_controls(panel, rig, item.rigging, item.module)
 
-class MMT_PT_Controls(bpy.types.Panel):
+class MMT_PT_RiggingControls(bpy.types.Panel):
     bl_idname = "MMT_PT_Controls"
     bl_label = "Controls"
     bl_space_type = 'VIEW_3D'
@@ -173,16 +180,18 @@ class MMT_PT_Controls(bpy.types.Panel):
         layout = self.layout
         rig = context.object
         active = context.active_pose_bone
-        if not active:
+        # nothing to show without an active bone...
+        if active:
+            # find whichever module instance the active bone actually belongs to...
+            module = _functions.get_active_module(rig, active.bone.name)
+            if module:
+                layout.label(text=module.module, icon='ARMATURE_DATA')
+                draw_module_controls(layout, rig, module.rigging, module.module)
+            # or if it isn't in a module...
+            else:
+                layout.label(text="Active bone isn't part of a rigging module.", icon='INFO')
+        else:
             layout.label(text="No active bone.", icon='INFO')
-            return
-        # find whichever module instance the active bone actually belongs to...
-        module = _functions.get_active_module(rig, active.bone.name)
-        if not module:
-            layout.label(text="Active bone isn't part of a rigging module.", icon='INFO')
-            return
-        layout.label(text=module.module, icon='ARMATURE_DATA')
-        draw_module_controls(layout, rig, module.rigging, module.module)
 
 def show_operator_settings(layout, module, oriented, settings, validity):
     # showing settings may need to be restricted per module... (iterate on required identifiers)...
@@ -211,6 +220,7 @@ def show_operator_settings(layout, module, oriented, settings, validity):
                 row.use_property_split = True
                 row.alert = (invalid)
                 row.prop_search(item, 'affix', oriented.data, 'bones', text=item.name.capitalize(), icon=icon)
+                # bones with axes get toggles...
                 if has_axes:
                     axes = module.settings.axes.get(item.name)
                     toggles = row.row(align=True)

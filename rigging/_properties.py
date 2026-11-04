@@ -5,7 +5,7 @@ from bpy.props import (EnumProperty, BoolProperty, StringProperty, CollectionPro
 from .. import utilities
 from . import _functions as functions
 
-class MMT_PG_Affix(bpy.types.PropertyGroup):
+class MMT_PG_RiggingAffix(bpy.types.PropertyGroup):
 
     affix: StringProperty(
         name="Affix", description="Bone name affix to use.",
@@ -22,10 +22,10 @@ class MMT_PG_Affix(bpy.types.PropertyGroup):
         default=True, options={'HIDDEN'}
         )
 
-class MMT_PG_Color(bpy.types.PropertyGroup):
+class MMT_PG_RiggingColor(bpy.types.PropertyGroup):
 
     def get_palette_items(self, context):
-        # all colors except custom... (honestly because i'm lazy, maybe in the future)...
+        # all colors except custom... (honestly because i'm lazy, maybe in the future)
         palette, items = bpy.types.BoneColor.bl_rna.properties['palette'], []
         for i, e in enumerate(palette.enum_items):
             icon, number = "", e.identifier[len("THEME"):]
@@ -40,7 +40,7 @@ class MMT_PG_Color(bpy.types.PropertyGroup):
         items=get_palette_items, default=0, update=functions.update_module_settings, options=set()
         )
 
-class MMT_PG_Shape(bpy.types.PropertyGroup):
+class MMT_PG_RiggingShape(bpy.types.PropertyGroup):
 
     show: EnumProperty(
         name="Show", description="Show translation, rotation or scale settings.",
@@ -90,7 +90,7 @@ class MMT_PG_Shape(bpy.types.PropertyGroup):
         default=(1.0, 1.0, 1.0), subtype='XYZ', update=functions.update_module_settings, options=set()
         )
 
-class MMT_PG_Axes(bpy.types.PropertyGroup):
+class MMT_PG_RiggingAxes(bpy.types.PropertyGroup):
 
     x: BoolProperty(
         name="X", description="Use X axis.",
@@ -107,7 +107,7 @@ class MMT_PG_Axes(bpy.types.PropertyGroup):
         default=True, update=functions.update_module_settings, options=set()
         )
 
-class MMT_PG_Rigging(bpy.types.PropertyGroup):
+class MMT_PG_RiggingSettings(bpy.types.PropertyGroup):
 
     offset: FloatProperty(
         name="Offset", description="The distance to offset the pole target bone by (negative inverts direction).",
@@ -154,17 +154,17 @@ class MMT_PG_Rigging(bpy.types.PropertyGroup):
             ], default=0, update=functions.update_module_settings, options=set()
         )
     
-    axes: CollectionProperty(type=MMT_PG_Axes)
+    axes: CollectionProperty(type=MMT_PG_RiggingAxes)
 
-    suffices: CollectionProperty(type=MMT_PG_Affix)
+    suffices: CollectionProperty(type=MMT_PG_RiggingAffix)
 
-    prefices: CollectionProperty(type=MMT_PG_Affix)
+    prefices: CollectionProperty(type=MMT_PG_RiggingAffix)
 
-    colors: CollectionProperty(type=MMT_PG_Color)
+    colors: CollectionProperty(type=MMT_PG_RiggingColor)
 
-    shapes: CollectionProperty(type=MMT_PG_Shape)
+    shapes: CollectionProperty(type=MMT_PG_RiggingShape)
 
-class MMT_PG_Module(bpy.types.PropertyGroup):
+class MMT_PG_RiggingModule(bpy.types.PropertyGroup):
 
     # internal guard, stops settings changes made while a rebuild is already in progress re-triggering it...
     updating: BoolProperty(
@@ -196,9 +196,9 @@ class MMT_PG_Module(bpy.types.PropertyGroup):
         default=""
         )
 
-    settings: PointerProperty(type=MMT_PG_Rigging)
+    settings: PointerProperty(type=MMT_PG_RiggingSettings)
 
-    mirrored: PointerProperty(type=MMT_PG_Rigging)
+    mirrored: PointerProperty(type=MMT_PG_RiggingSettings)
 
     mirrored_name: StringProperty(name="Mirrored", description="Internal counterpart module name.", default="",
         options={'HIDDEN'})

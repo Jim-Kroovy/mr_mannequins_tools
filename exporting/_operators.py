@@ -11,7 +11,7 @@ from . import _functions as functions
 from . import _interface as interface
 from . import _properties as properties
 
-class MMT_OT_Export(bpy.types.Operator, ExportHelper):
+class MMT_OT_ExportingFBX(bpy.types.Operator, ExportHelper):
     """Exports armatures and meshes as compatible FBX files."""
     bl_idname = "mmt.export"
     bl_label = "Mr Mannequins FBX"
@@ -33,7 +33,7 @@ class MMT_OT_Export(bpy.types.Operator, ExportHelper):
         default=True
         )
 
-    settings: PointerProperty(type=properties.MMT_PG_Export)
+    settings: PointerProperty(type=properties.MMT_PG_ExportingSettings)
 
     def invoke(self, context, event):
         # restore whatever was last used, so settings persist across files/sessions...
@@ -69,6 +69,7 @@ class MMT_OT_Export(bpy.types.Operator, ExportHelper):
         # background exports run against a disposable file copy, so nothing here needs saving/restoring...
         if self.background:
             success, error = functions.export_filmbox_background(os.path.dirname(self.filepath), self.settings, self._statics, self._targets)
+            # a failed export reports back and cancels...
             if not success:
                 self.report({'ERROR'}, error)
                 return {'CANCELLED'}
@@ -84,4 +85,4 @@ class MMT_OT_Export(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 def add_export_operator(self, context):
-    self.layout.operator(MMT_OT_Export.bl_idname, text="Mr Mannequins FBX (.fbx)", icon='USER')
+    self.layout.operator(MMT_OT_ExportingFBX.bl_idname, text="Mr Mannequins FBX (.fbx)", icon='USER')

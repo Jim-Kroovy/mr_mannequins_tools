@@ -5,7 +5,7 @@ from bpy.props import (BoolProperty, StringProperty)
 from . import _functions as functions
 from . import _interface as interface
 
-class MMT_OT_Apply(bpy.types.Operator):
+class MMT_OT_UtilitiesApply(bpy.types.Operator):
     """Applies modifiers and transforms on meshes while preserving shape keys"""
     bl_idname = "mmt.apply"
     bl_label = "Apply Meshes"
@@ -45,9 +45,9 @@ class MMT_OT_Apply(bpy.types.Operator):
 
 def add_apply_operator(self, context):
     self.layout.separator()
-    self.layout.operator(MMT_OT_Apply.bl_idname, icon='CHECKMARK')
+    self.layout.operator(MMT_OT_UtilitiesApply.bl_idname, icon='CHECKMARK')
 
-class MMT_OT_Clean(bpy.types.Operator):
+class MMT_OT_UtilitiesClean(bpy.types.Operator):
     """Cleans shape keys, vertex groups and materials by prefix."""
     bl_idname = "mmt.clean"
     bl_label = "Clean Meshes"
@@ -78,9 +78,9 @@ class MMT_OT_Clean(bpy.types.Operator):
         return {'FINISHED'}
 
 def add_clean_operator(self, context):
-    self.layout.operator(MMT_OT_Clean.bl_idname, icon='TRASH')
+    self.layout.operator(MMT_OT_UtilitiesClean.bl_idname, icon='TRASH')
 
-class MMT_OT_Invoke(bpy.types.Operator):
+class MMT_OT_UtilitiesInvoke(bpy.types.Operator):
     """Opens a menu as though called from the 3D viewport, so operators run from it show their redo panel there instead of wherever it was actually opened from."""
     bl_idname = "mmt.invoke"
     bl_label = ""
@@ -96,6 +96,7 @@ class MMT_OT_Invoke(bpy.types.Operator):
         for area in context.window.screen.areas:
             if area.type == 'VIEW_3D':
                 for region in area.regions:
+                    # call the menu from the window region...
                     if region.type == 'WINDOW':
                         override = {'window' : context.window, 'screen' : context.screen, 'area' : area, 'region' : region}
                         with context.temp_override(**override):

@@ -74,6 +74,7 @@ def add_plantigrade_bones(oriented, rig, settings):
     # add the origin bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['forward'].affix + suffices['origin'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['forward'].affix + suffices['origin'].affix)
+    # add the shared origin if it's set and not already there...
     if suffices['origin'].affix and not existing:
         prefix, suffix = prefices["forward"].affix, suffices['origin'].affix
         origin_eb, first_eb = oriented.data.edit_bones.get(suffix), oriented.data.edit_bones.get(suffices['first'].affix)
@@ -85,6 +86,7 @@ def add_plantigrade_bones(oriented, rig, settings):
     # add the root bone if the settings have one and it doesn't already exist on the rigging armature...
     added[prefices['root'].affix + suffices['root'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['root'].affix + suffices['root'].affix)
+    # add the shared root if it's set and not already there...
     if suffices['root'].affix and not existing:
         prefix, suffix = prefices["root"].affix, suffices['root'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'root', search=True)
@@ -508,9 +510,10 @@ def add_plantigrade_rigging(oriented, rig, settings):
 
 def invoke_plantigrade_module(context, module):
     defaults = get_plantigrade_defaults()
+    saved = _functions.get_saved_defaults(module.rigging)
     _functions.set_default_settings(module.settings, defaults)
     # overlay whatever naming/colors/shapes were last used for this rigging type, if any...
-    _functions.merge_saved_defaults(module.settings, _functions.get_saved_defaults(module.rigging))
+    _functions.merge_saved_defaults(module.settings, saved)
     # try and get existing armatures...
     rig, oriented, original = utilities.functions.get_armature_hierarchy(context.object)
     oriented = oriented or original
@@ -520,34 +523,35 @@ def invoke_plantigrade_module(context, module):
         _functions.add_chain_names(module.settings, 2, ending=True)
         # plantigrade needs at least a thigh, calf and foot bone to form a valid ik chain...
         print("Select at least three chain bones (e.g. thigh, calf, foot).")
-        return True
-    # add ordinal chain bones from all but the last selected bone...
-    for index, bone in enumerate(selection[:-1]):
-        suffix = module.settings.suffices.add()
-        suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
-        suffix.affix, suffix.unique, suffix.required = bone.name, True, True
-    # last selected bone is the ending...
-    ending = module.settings.suffices.add()
-    ending.name, ending.affix, ending.unique, ending.required = 'ending', selection[-1].name, True, True
-    # auto-detect pivot from the first child of the ending bone...
-    ending_pb = selection[-1]
-    pivot = module.settings.suffices.add()
-    pivot.name, pivot.unique, pivot.required = 'pivot', True, True
-    pivot.affix = ending_pb.children[0].name if ending_pb.children else ""
-    # set the origin if the first chain bone has a parent...
-    origin = selection[0].parent
-    module.settings.suffices['origin'].affix = origin.name if origin else ""
-    # default to hands off if another modules bone collection already claims the origin...
-    module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
-    _functions.set_auto_mirror(module.settings, selection, origin)
-    # auto detect a sensible fallback axis from the first chain bones own axes...
-    points = [pb.head for pb in selection]
-    axis = _functions.get_chain_axis(points, selection[0].bone)
-    module.settings.axis = axis
-    # initialize the offset using the scenes unit scale...
-    heads = [b.head for b in selection[1:-1]]
-    module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].head, heads)
-    module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
+    else:
+        # add ordinal chain bones from all but the last selected bone...
+        for index, bone in enumerate(selection[:-1]):
+            suffix = module.settings.suffices.add()
+            suffix.name = utilities.functions.get_ordinal_index(index + 1).lower()
+            suffix.affix, suffix.unique, suffix.required = bone.name, True, True
+        # last selected bone is the ending...
+        ending = module.settings.suffices.add()
+        ending.name, ending.affix, ending.unique, ending.required = 'ending', selection[-1].name, True, True
+        # auto-detect pivot from the first child of the ending bone...
+        ending_pb = selection[-1]
+        pivot = module.settings.suffices.add()
+        pivot.name, pivot.unique, pivot.required = 'pivot', True, True
+        pivot.affix = ending_pb.children[0].name if ending_pb.children else ""
+        # set the origin if the first chain bone has a parent...
+        origin = selection[0].parent
+        module.settings.suffices['origin'].affix = origin.name if origin else ""
+        # default to hands off if another modules bone collection already claims the origin...
+        module.settings.shared = _functions.get_shared_default(rig, module.settings.prefices['forward'].affix + module.settings.suffices['origin'].affix)
+        _functions.set_auto_mirror(module.settings, selection, origin)
+        # auto detect a sensible fallback axis from the first chain bones own axes - but a saved axis (even an explicit AUTO) is itself a remembered choice and wins over a fresh guess...
+        if not (saved and 'axis' in saved.get('settings', {})):
+            points = [pb.head for pb in selection]
+            axis = _functions.get_chain_axis(points, selection[0].bone)
+            module.settings.axis = axis
+        # initialize the offset using the scenes unit scale...
+        heads = [b.head for b in selection[1:-1]]
+        module.settings.position = _functions.get_central_position(selection[0].head, selection[-1].head, heads)
+        module.settings.offset = module.settings.offset * utilities.functions.get_unit_scaling(context, inverse=True)
     return True
 
 def draw_plantigrade_settings(layout, oriented, module):
@@ -580,12 +584,14 @@ def execute_plantigrade_module(context, module):
         return None
     # if all the bone name suffices are valid...
     validity = _functions.get_naming_validity(suffices)
+    # stop before building with bad suffixes...
     if not all(validity.values()):
         print("Suffix validation failed...")
         print(validity)
         return None
     # and all the prefices are also valid...
     validity = _functions.get_naming_validity(prefices)
+    # or bad prefixes...
     if not all(validity.values()):
         print("Prefix validation failed...")
         print(validity)
@@ -714,13 +720,15 @@ def draw_plantigrade_controls(layout, rig, module):
 
     # snapping needs the forward chain to already be posed in fk, which only makes sense once the module is built...
     layout.separator()
-    layout.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC')
+    row = layout.row(align=True)
+    row.operator("mmt.snap", text="Snap IK to FK", icon='CON_KINEMATIC').direction = 'IK_TO_FK'
+    row.operator("mmt.snap", text="Snap FK to IK", icon='CON_KINEMATIC').direction = 'FK_TO_IK'
 
 def set_snapped_direct(context, module):
     return _functions.set_snapped_chain_direct(context, module, parented=True)
 
 def set_snapped_kinematics(context, module, clear=True):
-    # snap the ik target and pole onto the forward chains current fk pose so switching to ik doesn't pop - forwards read pose_bone.matrix directly since their real rotation comes from a live "Copy Offset Rotation/Location" constraint, not their own basis...
+    # snap the ik target and pole onto the current fk pose so switching doesn't pop... (forwards read matrix, their rotation comes from constraints)
     rig, _, _ = utilities.functions.get_armature_hierarchy(context.object)
     if not rig:
         return False
@@ -751,6 +759,7 @@ def set_snapped_kinematics(context, module, clear=True):
     rest_rotation_0 = forward_pbs[0].bone.matrix_local.to_quaternion()
     # a chain thats genuinely straight has no real bend signal, so override secondary with rest_secondary rotated by however far forwards[0] has turned since rest...
     override = _functions.get_axis_override(forward_pbs[0], settings.axis)
+    # no override, so work the pole out from the bend of the chain...
     if override is None:
         chain_length, chain_direction = utilities.functions.get_distance_direction(points[0], points[-1])
         dominant = Vector((0.0, 0.0, 0.0))
@@ -778,7 +787,7 @@ def set_snapped_kinematics(context, module, clear=True):
         parent_pb.location = parent_local.translation
         parent_pb.rotation_quaternion = parent_local.to_quaternion()
 
-    # resolve once from rest data which of vectors own axes points toward the pole, apply that fixed sign to secondary, then read the same axis back off vectors own live just-solved matrix for poles position...
+    # resolve once from rest which vector axis points to the pole, then read that axis off its solved matrix...
     rest_axes = _functions.get_bone_axes(vector_pb.bone, ['+X', '-X', '+Z', '-Z'])
     pole_axis_name, _ = utilities.functions.get_closest_axis(rest_secondary, rest_axes)
     vector_z_sign = 1.0 if pole_axis_name == '+Z' else -1.0

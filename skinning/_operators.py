@@ -5,7 +5,7 @@ from bpy.props import (EnumProperty, BoolProperty, FloatProperty, FloatVectorPro
 from . import _functions as functions
 from . import _interface as interface
 
-class MMT_OT_Weight(bpy.types.Operator):
+class MMT_OT_SkinningWeight(bpy.types.Operator):
     """Weights vertices around bones using an adjustable shape"""
     bl_idname = "mmt.weight"
     bl_label = "Weight Meshes"
@@ -80,9 +80,9 @@ class MMT_OT_Weight(bpy.types.Operator):
         return {'FINISHED'}
 
 def add_weight_operator(self, context):
-    self.layout.operator(MMT_OT_Weight.bl_idname, icon='WPAINT_HLT')
+    self.layout.operator(MMT_OT_SkinningWeight.bl_idname, icon='WPAINT_HLT')
 
-class MMT_OT_Socket(bpy.types.Operator):
+class MMT_OT_SkinningSocket(bpy.types.Operator):
     """Attaches single weighted skeletal meshes to their armature to make them correctly oriented socket meshes, or detaches them back to skeletal meshes"""
     bl_idname = "mmt.socket"
     bl_label = "Socket Meshes"
@@ -110,7 +110,7 @@ class MMT_OT_Socket(bpy.types.Operator):
 
 def add_socket_operator(self, context):
     self.layout.separator()
-    op = self.layout.operator(MMT_OT_Socket.bl_idname, text="Socket Meshes", icon='LINKED')
+    op = self.layout.operator(MMT_OT_SkinningSocket.bl_idname, text="Socket Meshes", icon='LINKED')
     op.mode, op.suffices = 'SOCKET', False
-    op = self.layout.operator(MMT_OT_Socket.bl_idname, text="Unsocket Meshes", icon='UNLINKED')
+    op = self.layout.operator(MMT_OT_SkinningSocket.bl_idname, text="Unsocket Meshes", icon='UNLINKED')
     op.mode, op.suffices = 'UNSOCKET', False

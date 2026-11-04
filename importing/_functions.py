@@ -1,13 +1,15 @@
 import bpy
 import os
 
+from mathutils import Matrix
+
 from .. import utilities
 from .. import retargeting
 from .. import orientation
 from .. import templates
 
 def get_root_offset(armature):
-    # an animation-only exports root can sit at a different height than a skinned exports (idle frame vs t-pose) without the skeleton actually being different, so rest poses get compared relative to this instead of in raw armature space...
+    # an animation only exports root can sit at a different height than a skinned one... (so rest poses get compared relative to this)
     root = next((b for b in armature.data.bones if not b.parent), None)
     return root.matrix_local.translation if root else None
 
@@ -55,6 +57,14 @@ def get_matched_armature(armature, armatures):
     # if there is no match return nothing...
     return None
 
+def get_available_name(base, taken):
+    # the next name free in both namespaces, blender suffixes object and mesh names independently... (matches its .001 convention)
+    candidate, index = base, 1
+    while candidate in taken:
+        candidate = base + ".%03d" % index
+        index += 1
+    return candidate
+
 def get_leaf_bones(armature, meshes):
     # bones that actually deform something, ie. some mesh has a vertex group for them...
     deformers = {name for mesh in meshes for name in mesh.vertex_groups.keys()}
@@ -78,7 +88,15 @@ def get_imported_assets(context, filepaths, settings):
         objects = bpy.context.selected_objects
         armatures = [o for o in objects if o.type == 'ARMATURE']
         meshes = [o for o in objects if o.type == 'MESH']
-        # fbx import creates fresh numbered-suffix materials/images whenever a name collides with something already in the file, so switch onto whatever already exists instead of leaving duplicates behind, same as the template loader...
+        # rename imported meshes after their file, each candidate reserved against object and mesh names combined... (sorted so selection order can't pick who stays unsuffixed)
+        mesh_objects, mesh_data = set(meshes), {m.data for m in meshes}
+        taken = {o.name for o in bpy.data.objects if o not in mesh_objects} | {d.name for d in bpy.data.meshes if d not in mesh_data}
+        for mesh in sorted(meshes, key=lambda m: m.name):
+            name = get_available_name(filename, taken)
+            mesh.name = name
+            mesh.data.name = name
+            taken.add(name)
+        # fbx import makes suffixed duplicates when a name collides, so switch onto what already exists... (same as the template loader)
         templates.functions.set_deduplicated_assets(meshes)
         statics = statics + [m for m in meshes if not m.find_armature()]
         removals = removals + [o for o in objects if o.type == 'EMPTY']
@@ -88,11 +106,17 @@ def get_imported_assets(context, filepaths, settings):
             existing = get_matched_armature(armature, skeletons.keys())
             for action in [a for a in bpy.data.actions if a not in actions]:
                 action.name = filename
-                utilities.functions.set_stashed_action(existing or armature, action)
             # if the armature already exists append any new skeletal meshes and actions... (and append it for removal)
             if existing:
-                skeletons[existing]['skeletals'] = skeletons[existing]['skeletals'] + [m for m in meshes if m.find_armature() == armature]
+                bound_skeletals = [m for m in meshes if m.find_armature() == armature]
+                # the first mesh-bearing source keeps naming authority - once the survivor has skeletal meshes, later matches (mesh or animation-only) can add to it but never rename it or provoke .001 churn...
+                had_no_skeletals = not skeletons[existing]['skeletals']
+                skeletons[existing]['skeletals'] = skeletons[existing]['skeletals'] + bound_skeletals
                 skeletons[existing]['actions'] = skeletons[existing]['actions'] + [a for a in bpy.data.actions if a not in actions]
+                # the existing armature had no skeletals until now, so it takes the filename and the import gets removed...
+                if bound_skeletals and had_no_skeletals:
+                    existing.name = filename + "_Skeleton"
+                    existing.data.name = filename + "_Skeleton"
                 removals.append(armature)
             else:
                 # if doesn't already exist then create its entry with its meshes and actions and name it after the file...
@@ -112,6 +136,8 @@ def set_imported_assets(context, settings, statics, skeletons, removals, target,
         static.select_set(True)
     for skeleton, assets in skeletons.items():
         skeleton.select_set(True)
+        # bones should show through the meshes they came in with...
+        skeleton.show_in_front = True
        
         for skeletal in assets['skeletals']:
             skeletal.select_set(True)
@@ -123,6 +149,7 @@ def set_imported_assets(context, settings, statics, skeletons, removals, target,
         bpy.context.view_layer.objects.active = skeleton
         bpy.ops.object.mode_set(mode='EDIT')
         root_eb = skeleton.data.edit_bones.get(assets['name'])
+        # no root bone yet, so add one and parent the orphans to it...
         if root_eb is None:
             orphans = [b for b in skeleton.data.edit_bones if b.parent is None]
             root_eb = skeleton.data.edit_bones.new(assets['name'])
@@ -143,6 +170,7 @@ def set_imported_assets(context, settings, statics, skeletons, removals, target,
         channels = {'location', 'rotation_euler', 'rotation_quaternion', 'rotation_axis_angle', 'scale'}
         for action in assets['actions']:
             for fc in utilities.functions.get_action_fcurves(action):
+                # root channels move onto the new root bone, with their values scaled to match...
                 if fc.data_path in channels:
                     fc.data_path = 'pose.bones["' + assets['name'] + '"].' + fc.data_path
                     for key in fc.keyframe_points:
@@ -150,9 +178,9 @@ def set_imported_assets(context, settings, statics, skeletons, removals, target,
                         key.handle_left.y *= scaling
                         key.handle_right.y *= scaling
                     fc.update()
-            # decimating before retargeting means theres less for retargeting/applying to process, thinning has no such preference so it just defaults to here whenever decimate itself isn't running after instead...
-            decimate = settings.cleaning.decimate == 'PRE'
-            if decimate or (settings.cleaning.decimate != 'POST' and settings.cleaning.spacing > 0):
+            # decimate before retargeting so there's less to process... (thinning has no preference, so it runs here when decimate isn't running after)
+            decimate = settings.cleaning.decimate == 'BEFORE'
+            if decimate or (settings.cleaning.decimate != 'AFTER' and settings.cleaning.spacing > 0):
                 retargeting.functions.set_cleaned_action(context, skeleton, action, decimate, settings.cleaning.margin, settings.cleaning.spacing)
     # clear all transforms and parenting...
     bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
@@ -188,25 +216,46 @@ def set_imported_assets(context, settings, statics, skeletons, removals, target,
                 # retarget onto the armature highest in the hierarchy...
                 bpy.ops.object.mode_set(mode='OBJECT')
                 destination = rig if rig else orient if orient else origin
+                # snapshot before the loop removes source actions... (so the receiver matches this skeletons active and stashed state)
+                active_source_action = skeleton.animation_data.action if skeleton.animation_data else None
                 retargeted = []
+                active_retarget = None
                 for action in assets['actions']:
                     retarget = retargeting.functions.set_retargeted_action(context, action, skeleton, target, step_height=settings.retargeting.step_height)
+                    was_active = action == active_source_action
                     name = action.name
                     bpy.data.actions.remove(action, do_unlink=True)
+                    # stash the retargeted action under its final name...
                     if retarget:
                         retarget.name = name
                         utilities.functions.set_stashed_action(destination, retarget)
                         retargeted.append(retarget)
+                        if was_active:
+                            active_retarget = retarget
                 # unlike the meshes branch above, skeleton here was only ever a source to read the action off of, so it needs the same removals cleanup instead of being left behind in the scene...
                 removals.append(skeleton)
                 finals = [(destination, action) for action in retargeted]
-                # make the last retargeted action the active one on the destination, leaving the slot to blender...
-                if retargeted:
-                    destination.animation_data.action = retargeted[-1]
+                # preserve the imported skeletons own active-vs-stashed state instead of always promoting the last result, leaving the slot to blender...
+                if active_retarget:
+                    destination.animation_data.action = active_retarget
+                elif destination.animation_data:
+                    # no active result, so don't leave the old action assigned...
+                    destination.animation_data.action = None
+                    if retargeted:
+                        # no retargeted result stays active - clear the pose too, or the receiver visually stays on whatever frame was last evaluated during retargeting...
+                        retargeting.functions.set_pose_reset(destination)
         # and if we are decimating (with thinning bundled alongside it) after retargeting, do it last, on wherever the actions actually ended up...
-        if settings.cleaning.decimate == 'POST':
+        if settings.cleaning.decimate == 'AFTER':
             for armature, action in finals:
                 retargeting.functions.set_cleaned_action(context, armature, action, True, settings.cleaning.margin, settings.cleaning.spacing)
+        # a mesh bearing character finishes at rest, clearing the action alone leaves bones frozen... (animation only skeletons keep their own state from above)
+        if assets['skeletals']:
+            for final_armature in {armature for armature, action in finals}:
+                if final_armature.animation_data:
+                    final_armature.animation_data.action = None
+                for pose_bone in final_armature.pose.bones:
+                    pose_bone.matrix_basis = Matrix.Identity(4)
+            context.view_layer.update()
     # if we aren't debugging...
     if not debug:
         # clean everything we don't need up...

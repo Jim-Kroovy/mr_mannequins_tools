@@ -5,7 +5,7 @@ from bpy.props import (EnumProperty, BoolProperty, FloatProperty, IntProperty, P
 from .. import utilities
 from .. import retargeting
 
-class MMT_PG_ImportFBX(bpy.types.PropertyGroup):
+class MMT_PG_ImportingFBX(bpy.types.PropertyGroup):
 
     scaling: FloatProperty(
         name="Scale", description="Scale all data.",
@@ -94,7 +94,7 @@ class MMT_PG_ImportFBX(bpy.types.PropertyGroup):
         default=True
         )
 
-class MMT_PG_Orientation(bpy.types.PropertyGroup):
+class MMT_PG_ImportingOrientation(bpy.types.PropertyGroup):
 
     orient: BoolProperty(
         name="Orient Armature", description="Create an oriented armature for any armatures that get imported.",
@@ -125,7 +125,7 @@ def get_target_items(self, context):
     retargeting.functions.set_target_items(prefs, None)
     return prefs.target_items
 
-class MMT_PG_Retargeting(bpy.types.PropertyGroup):
+class MMT_PG_ImportingRetargeting(bpy.types.PropertyGroup):
 
     target: EnumProperty(
         name="Target", description="Optional existing armature to retarget imported meshes and actions onto.",
@@ -147,7 +147,7 @@ class MMT_PG_Retargeting(bpy.types.PropertyGroup):
         default=0.1, min=0.0
         )
 
-class MMT_PG_Cleaning(bpy.types.PropertyGroup):
+class MMT_PG_ImportingCleanup(bpy.types.PropertyGroup):
 
     leaf_bones: BoolProperty(
         name="Remove Leaf Bones", description="Remove bones that deform nothing themselves but are parented to a bone that does, catching leaf bones the FBX importers own Ignore Leaf Bones setting misses.",
@@ -158,8 +158,8 @@ class MMT_PG_Cleaning(bpy.types.PropertyGroup):
         name="Decimate Keyframes", description="Reduce each imported actions keyframes via blenders own curve-fitting decimate. This can be slow - expect several seconds per action on a dense, fully baked mocap take.",
         items=[
             ('NONE', "None", "Don't decimate keyframes. (Faster, but less editable)."),
-            ('PRE', "Before", "Decimate before scaling and retargeting. (Slow but more editable)."),
-            ('POST', "After", "Decimate after scaling and retargeting (Slower but more editable and more accurate)."),
+            ('BEFORE', "Before", "Decimate before scaling and retargeting. (Slow but more editable)."),
+            ('AFTER', "After", "Decimate after scaling and retargeting (Slower but more editable and more accurate)."),
             ], default='NONE'
         )
 
@@ -173,12 +173,12 @@ class MMT_PG_Cleaning(bpy.types.PropertyGroup):
         default=0, min=0
         )
 
-class MMT_PG_Import(bpy.types.PropertyGroup):
+class MMT_PG_ImportingSettings(bpy.types.PropertyGroup):
 
-    filmbox: PointerProperty(type=MMT_PG_ImportFBX, name="Filmbox")
+    filmbox: PointerProperty(type=MMT_PG_ImportingFBX, name="Filmbox")
 
-    orientation: PointerProperty(type=MMT_PG_Orientation, name="Orientation")
+    orientation: PointerProperty(type=MMT_PG_ImportingOrientation, name="Orientation")
 
-    retargeting: PointerProperty(type=MMT_PG_Retargeting, name="Retargeting")
+    retargeting: PointerProperty(type=MMT_PG_ImportingRetargeting, name="Retargeting")
 
-    cleaning: PointerProperty(type=MMT_PG_Cleaning, name="Cleaning")
+    cleaning: PointerProperty(type=MMT_PG_ImportingCleanup, name="Cleaning")

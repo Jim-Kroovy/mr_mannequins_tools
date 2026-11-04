@@ -38,6 +38,7 @@ def add_root_bones(oriented, rig, settings):
     # add a plain mirror of the root bone if it doesn't already exist on the rigging armature...
     added[prefices['root'].affix + suffices['root'].affix] = {}
     existing = rig.data.edit_bones.get(prefices['root'].affix + suffices['root'].affix)
+    # add the root if it isn't there...
     if not existing:
         prefix, suffix = prefices["root"].affix, suffices['root'].affix
         name = _functions.add_shared_bone(oriented, rig, prefix, suffix, 'root', search=True)
@@ -57,6 +58,7 @@ def add_root_bones(oriented, rig, settings):
         # add a child bone matching the selected bones own geometry if it doesn't already exist, left unparented...
         added[prefices['child'].affix + suffices[suffix].affix] = {}
         existing = rig.data.edit_bones.get(prefices['child'].affix + suffices[suffix].affix)
+        # add the motion bone if it isn't there...
         if not existing:
             prefix, affix = prefices["child"].affix, suffices[suffix].affix
             name = _functions.add_shared_bone(oriented, rig, prefix, affix, 'root', search=True)
@@ -184,6 +186,7 @@ def invoke_root_module(context, module):
     # use the active bone as root... (other selected bones are optional motion followers)...
     active = oriented.data.bones.active if oriented else None
     selection = [pb for pb in (context.selected_pose_bones or []) if pb.id_data == oriented and pb.bone != active]
+    # needs an active bone to use as the root...
     if not active:
         print("Select a root bone.")
         return False
@@ -260,6 +263,7 @@ def draw_root_controls(layout, rig, module):
     driven = {d.data_path for d in rig.animation_data.drivers} if rig.animation_data else set()
     for pose_bone in motions:
         path = 'pose.bones["' + pose_bone.name + '"].constraints["Root Transform"].influence'
+        # no influence slider if a driver has it...
         if path not in driven:
             child_of = pose_bone.constraints.get("Root Transform")
             if child_of:

@@ -52,6 +52,7 @@ def set_socketed_meshes(selection, suffices=True):
             if armature:
                 # if there is only one vertex group weighted to the armature...
                 _, weighted = get_weighted_groups(armature, mesh)
+                # a single weighted mesh only has the one group...
                 if len(weighted) == 1:
                     group = weighted[0]
                     # we can get the bone...
@@ -156,9 +157,11 @@ def set_weight_spherical(meshes, shape='SPHERE', mode='REPLACE', offset=(0.0, 0.
         armature = None
         for mod in mesh.modifiers:
             if mod.type == 'ARMATURE':
+                # use the selected armature...
                 if mod.object and mod.object.select_get():
                     armature = mod.object
                     break
+        # only with an armature, using its selected bones...
         if armature:
             bones = [pb.bone for pb in armature.pose.bones if pb.select]
             for bb in bones:
@@ -180,6 +183,7 @@ def set_weight_spherical(meshes, shape='SPHERE', mode='REPLACE', offset=(0.0, 0.
                 if show:
                     world_origin = armature.matrix_world @ (bb.matrix_local @ shape_origin)
                     world_rot = armature.matrix_world.to_3x3() @ bb.matrix_local.to_3x3() @ Euler(rotate).to_matrix()
+                    # show the debug shape...
                     if shape == 'CUBE':
                         _debug.add_debug_cube("DEBUG_outer_" + bb.name, world_origin, Vector(scale) * outer, world_rot, taper=taper)
                         _debug.add_debug_cube("DEBUG_inner_" + bb.name, world_origin, Vector(scale) * inner, world_rot, taper=taper)
@@ -238,9 +242,11 @@ def set_weight_cylindrical(meshes, shape='SPHERE', mode='REPLACE', offset=(0.0, 
         armature = None
         for mod in mesh.modifiers:
             if mod.type == 'ARMATURE':
+                # use the selected armature...
                 if mod.object and mod.object.select_get():
                     armature = mod.object
                     break
+        # only with an armature, using its selected bones...
         if armature:
             bones = [pb.bone for pb in armature.pose.bones if pb.select]
             for bb in bones:
@@ -336,6 +342,7 @@ def set_weight_cylindrical(meshes, shape='SPHERE', mode='REPLACE', offset=(0.0, 
                         group.add([v.index], weight * factor, mode)
                     elif remove:
                         group.remove([v.index])
+    # add the cleanup handler and skip its first update...
     if show:
         prefs = utilities.functions.get_addon_preferences(bpy.context)
         prefs.debug_skip[0] = True
@@ -348,63 +355,127 @@ def get_paint_swaps():
 # guards update_paint_mode against reacting to mode changes we trigger ourselves...
 weight_paint_busy = False
 
+# the last trio armature made active, blender hands activeness to the mesh before painting... (a name can't go stale if the object gets replaced)
+tracked_armature = None
+
+def get_tracked_armature():
+    armature = bpy.data.objects.get(tracked_armature) if tracked_armature else None
+    return armature if armature and armature.type == 'ARMATURE' else None
+
+def get_trio_hierarchy(armature):
+    # like get_armature_hierarchy but only for tagged trio members... (an untagged armature must never pass as part of the trio)
+    if armature.get('Armature Type') not in ('Original', 'Oriented', 'Rigging'):
+        return None, None, None
+    return utilities.functions.get_armature_hierarchy(armature)
+
+def get_mesh_hierarchy(mesh):
+    # the trio this mesh is rigged to, through whichever armature modifier resolves... (it may be mid swap, and an untagged modifier might come first)
+    for mod in mesh.modifiers:
+        # the first modifier on a trio wins...
+        if mod.type == 'ARMATURE' and mod.object:
+            rig, oriented, original = get_trio_hierarchy(mod.object)
+            if original:
+                return rig, oriented, original
+    return None, None, None
+
+def get_paint_target(context, mesh, original):
+    # the armature to paint against, the tracked one if it's still selected and in this trio... (otherwise a single selected one, never an arbitrary pick)
+    tracked = get_tracked_armature()
+    # the tracked armature wins if it's in the same trio...
+    if tracked and tracked.select_get():
+        _, _, tracked_original = get_trio_hierarchy(tracked)
+        if tracked_original == original:
+            return tracked
+    candidates = [o for o in context.selected_objects if o.type == 'ARMATURE' and o != mesh
+        and get_trio_hierarchy(o)[2] == original]
+    return candidates[0] if len(candidates) == 1 else None
+
 def set_paint_entered(context):
-    # swap every weighted meshes armature modifier from original onto whichever rigging/oriented armature the user had selected alongside it, flagged on the object itself (not addon prefs) so it cant leak between files - blender only pairs an armature into pose mode based on the modifier it sees at entry, so bounce out and back in (guarded) to make it re-evaluate against the new one...
+    # swap eligible armature modifiers onto the active trio member, flagged on the object so it can't leak between files... (bounce modes so pose mode re-pairs)
     global weight_paint_busy
     mesh = context.object
-    picked = next((o for o in context.selected_objects if o.type == 'ARMATURE' and o != mesh), None)
+    rig, oriented, original = get_mesh_hierarchy(mesh)
+    if not original:
+        return
+    picked = get_paint_target(context, mesh, original)
     if not picked:
         return
-    _, _, original = utilities.functions.get_armature_hierarchy(picked)
-    if not original or picked == original:
-        return
-    weighted, _ = utilities.functions.get_armature_meshes(original, bpy.context.scene.objects)
+    trio = {a for a in (rig, oriented, original) if a}
     swapped = []
-    for obj in weighted:
-        for mod in obj.modifiers:
-            if mod.type == 'ARMATURE' and mod.object == original:
+    for obj in context.scene.objects:
+        if obj.type != 'MESH':
+            continue
+        # only the modifiers actually belonging to this hierarchy - an unrelated armature modifier on the same mesh is never touched, and must also never get swept up when restoring later...
+        armature_mods = [m for m in obj.modifiers if m.type == 'ARMATURE' and m.object in trio]
+        if not armature_mods or not any(g.name in picked.data.bones for g in obj.vertex_groups):
+            continue
+        for mod in armature_mods:
+            if mod.object != picked:
                 mod.object = picked
-                swapped.append(obj)
+        swapped.append((obj, [m.name for m in armature_mods]))
     if not swapped:
         return
     weight_paint_busy = True
-    bpy.ops.object.mode_set(mode='OBJECT')
-    bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
-    weight_paint_busy = False
-    for obj in swapped:
-        obj['Weight Paint Swap'] = True
+    try:
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+    finally:
+        weight_paint_busy = False
+    # modifiers can't hold custom properties, so the mesh records which ones this session touched... (restoring only revisits those)
+    for obj, names in swapped:
+        obj['Weight Paint Swap'] = names
 
-def set_paint_left():
-    # return every swapped meshes armature modifier back onto its own original armature - no bounce needed, blenders pose-mode pairing only matters when entering weight paint, not leaving it...
+def set_paint_left(swaps=None):
+    # return only the exact modifiers this session touched back onto their own original armature - no bounce needed, blenders pose-mode pairing only matters when entering weight paint, not leaving it...
     global weight_paint_busy
     weight_paint_busy = True
-    for obj in get_paint_swaps():
-        for mod in obj.modifiers:
-            if mod.type == 'ARMATURE' and mod.object and mod.object.type == 'ARMATURE':
-                _, _, original = utilities.functions.get_armature_hierarchy(mod.object)
-                if original:
-                    mod.object = original
-        del obj['Weight Paint Swap']
-    weight_paint_busy = False
+    try:
+        for obj in swaps if swaps is not None else get_paint_swaps():
+            for name in obj.get('Weight Paint Swap') or []:
+                mod = obj.modifiers.get(name)
+                # point the modifier back at the original...
+                if mod and mod.type == 'ARMATURE' and mod.object and mod.object.type == 'ARMATURE':
+                    _, _, original = get_trio_hierarchy(mod.object)
+                    if original:
+                        mod.object = original
+            del obj['Weight Paint Swap']
+    finally:
+        weight_paint_busy = False
 
-def update_paint_mode():
-    # msgbus callback for (Object, "mode") - works out from current context whether a mesh just entered or left weight paint mode and swaps/restores its armature modifiers accordingly...
+@bpy.app.handlers.persistent
+def update_paint_mode(scene, depsgraph):
+    # persistent depsgraph handler, the msgbus key never fires in 5.2.1... (tracks the armature ahead of time, then swaps or restores on entering and leaving weight paint)
+    global tracked_armature
     if weight_paint_busy:
         return
     context = bpy.context
-    if context.object and context.object.type == 'MESH' and context.object.mode == 'WEIGHT_PAINT':
-        if not get_paint_swaps():
+    obj = context.object
+    # remember this armature if it's part of a trio...
+    if obj and obj.type == 'ARMATURE':
+        rig, oriented, original = get_trio_hierarchy(obj)
+        if rig or oriented or original:
+            tracked_armature = obj.name
+    # scan the (usually small) swap-marker set once and reuse it below, rather than rescanning bpy.data.objects up to three times per graph update...
+    swaps = get_paint_swaps()
+    tracked = get_tracked_armature()
+    if not swaps and tracked_armature is not None and not (tracked and tracked.select_get()):
+        # the tracked choice was dropped (deselected, removed, or selection moved on) with no session depending on it - clear it so ordinary updates can hit the cheap bail out below again...
+        tracked_armature = None
+    # nothing relevant has ever happened yet - bail before any further work runs on every single graph update...
+    if tracked_armature is None and not swaps:
+        return
+    if obj and obj.type == 'MESH' and obj.mode == 'WEIGHT_PAINT':
+        if not swaps:
             set_paint_entered(context)
-    elif get_paint_swaps():
-        set_paint_left()
-
-weight_paint_owner = object()
-
-def set_paint_subscribed():
-    # (re)subscribe to object mode changes - msgbus subscriptions dont survive a file load, so this also runs from a load_post handler, not just register()...
-    bpy.msgbus.clear_by_owner(weight_paint_owner)
-    bpy.msgbus.subscribe_rna(key=(bpy.types.Object, "mode"), owner=weight_paint_owner, args=(), notify=update_paint_mode)
+    elif swaps:
+        set_paint_left(swaps)
 
 @bpy.app.handlers.persistent
 def set_paint_loaded(dummy):
-    set_paint_subscribed()
+    # tracking state can't survive a file load, stale references are unsafe... (saved weight paint swap markers get restored too, eg. after a crash)
+    global tracked_armature, weight_paint_busy
+    tracked_armature = None
+    weight_paint_busy = False
+    swaps = get_paint_swaps()
+    if swaps:
+        set_paint_left(swaps)

@@ -4,14 +4,14 @@ from bpy.props import (EnumProperty, BoolProperty, StringProperty, CollectionPro
 
 from . import _functions as functions
 
-class MMT_PG_Mapping(bpy.types.PropertyGroup):
+class MMT_PG_RetargetingMapping(bpy.types.PropertyGroup):
 
     name: StringProperty(
         name="Name", description="An alternate source bone name to also accept as a match for this bone, tried whenever the exact name isn't found.",
         default="", update=functions.update_bone_mapping
         )
 
-class MMT_PG_Bone(bpy.types.PropertyGroup):
+class MMT_PG_RetargetingBone(bpy.types.PropertyGroup):
 
     # internal guard, stops a mirrored update re-triggering its own mirrored update back onto us...
     updating: BoolProperty(
@@ -49,4 +49,4 @@ class MMT_PG_Bone(bpy.types.PropertyGroup):
         default=False, update=functions.update_copy_children, options=set()
         )
 
-    mapping: CollectionProperty(type=MMT_PG_Mapping)
+    mapping: CollectionProperty(type=MMT_PG_RetargetingMapping)

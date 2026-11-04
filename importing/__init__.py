@@ -8,22 +8,22 @@ from . import _properties as properties
 
 def register():
     # import asset properties... (must be registered in dependency order)...
-    register_class(properties.MMT_PG_ImportFBX)
-    register_class(properties.MMT_PG_Orientation)
-    register_class(properties.MMT_PG_Retargeting)
-    register_class(properties.MMT_PG_Cleaning)
-    register_class(properties.MMT_PG_Import)
+    register_class(properties.MMT_PG_ImportingFBX)
+    register_class(properties.MMT_PG_ImportingOrientation)
+    register_class(properties.MMT_PG_ImportingRetargeting)
+    register_class(properties.MMT_PG_ImportingCleanup)
+    register_class(properties.MMT_PG_ImportingSettings)
     # compatible FBX import...
-    register_class(operators.MMT_OT_Import)
+    register_class(operators.MMT_OT_ImportingFBX)
     bpy.types.TOPBAR_MT_file_import.append(operators.add_import_operator)
 
 def unregister():
     # compatible FBX import...
     bpy.types.TOPBAR_MT_file_import.remove(operators.add_import_operator)
-    unregister_class(operators.MMT_OT_Import)
+    unregister_class(operators.MMT_OT_ImportingFBX)
     # import asset properties...
-    unregister_class(properties.MMT_PG_Import)
-    unregister_class(properties.MMT_PG_Cleaning)
-    unregister_class(properties.MMT_PG_Retargeting)
-    unregister_class(properties.MMT_PG_Orientation)
-    unregister_class(properties.MMT_PG_ImportFBX)
+    unregister_class(properties.MMT_PG_ImportingSettings)
+    unregister_class(properties.MMT_PG_ImportingCleanup)
+    unregister_class(properties.MMT_PG_ImportingRetargeting)
+    unregister_class(properties.MMT_PG_ImportingOrientation)
+    unregister_class(properties.MMT_PG_ImportingFBX)

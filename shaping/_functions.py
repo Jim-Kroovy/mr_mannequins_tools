@@ -59,7 +59,7 @@ def get_mirrored_vertices(vertices, precision=4, speed=4):
                 y = math.isclose(v.co.y, m.co.y, abs_tol=tolerance)
                 z = math.isclose(v.co.z, m.co.z, abs_tol=tolerance)
                 # if xyz are close enough and it's not a self mirror...
-                if x and y and z: #and v != m:
+                if x and y and z:
                     # add the mirrored indices to the mirror dictionary...
                     mirrored[v.index] = m.index
                     # and pop the mirrored vertex to avoid re-checking... (pop is faster than remove)...
@@ -206,6 +206,7 @@ def set_blended_shapes(meshes, prefix="", active=True, blend=0.1, into="", alpha
                     for _ in range(steps):
                         for i in affected:
                             neighbors = connected[i]
+                            # average the neighbors...
                             if neighbors:
                                 avg = Vector((0.0, 0.0, 0.0))
                                 for n in neighbors:
